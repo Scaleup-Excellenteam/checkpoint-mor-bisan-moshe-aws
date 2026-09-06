@@ -1,18 +1,14 @@
-import asyncio
-import websockets
+from fastapi import FastAPI, WebSocket
 
-async def handler(connection):
-    print("Client connected")
+app = FastAPI()
 
-    message = await connection.recv()
-    print("Received from client:", message)
-    await connection.send("Hello client!")
+@app.websocket("/ws")
+async def websocket_endpoint(websocket: WebSocket):
+    await websocket.accept()
+    data = await websocket.receive_text()
+   
+    await websocket.send_text(f"You said: {data}")
 
-
-async def main():
-    async with websockets.serve(handler, "localhost", 8000):
-        print("Server running at ws://localhost:8000")
-        #await asyncio.Future()  # runs forever
-        await asyncio.sleep(30)
-
-asyncio.run(main())
+if __name__ == "__main__":
+    import uvicorn
+    uvicorn.run(app, host="0.0.0.0", port=8000)
