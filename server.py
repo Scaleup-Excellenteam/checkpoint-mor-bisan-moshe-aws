@@ -1,18 +1,19 @@
-import socket
+from websockets.sync.server import serve
 
 HOST = "127.0.0.1"
+PORT = 65432
 
-PORT=65432
 
-with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s :
-    s.bind((HOST,PORT))
-    s.listen()
-    conn,addr = s.accept()
+def handle_client(websocket):
+    print("Client connected")
 
-    with conn:
-        print(f"connected by {addr}")
-        while True:
-            data = conn.recv(1024)
-            if not data:
-                break   
-            conn.sendall(data)
+    for message in websocket:
+        print(f"Client sent: {message}")
+        websocket.send(message)  # Echo back to this client
+
+    print("Client disconnected")
+
+
+with serve(handle_client, HOST, PORT) as server:
+    print(f"Server listening on ws://{HOST}:{PORT}")
+    server.serve_forever()
