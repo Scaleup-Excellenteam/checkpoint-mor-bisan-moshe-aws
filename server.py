@@ -1,19 +1,18 @@
-from websockets.sync.server import serve
+import asyncio
+import websockets
 
-HOST = "127.0.0.1"
-PORT = 65432
-
-
-def handle_client(websocket):
+async def handler(connection):
     print("Client connected")
 
-    for message in websocket:
-        print(f"Client sent: {message}")
-        websocket.send(message)  # Echo back to this client
-
-    print("Client disconnected")
+    message = await connection.recv()
+    print("Received from client:", message)
+    await connection.send("Hello client!")
 
 
-with serve(handle_client, HOST, PORT) as server:
-    print(f"Server listening on ws://{HOST}:{PORT}")
-    server.serve_forever()
+async def main():
+    async with websockets.serve(handler, "localhost", 8000):
+        print("Server running at ws://localhost:8000")
+        #await asyncio.Future()  # runs forever
+        await asyncio.sleep(30)
+
+asyncio.run(main())

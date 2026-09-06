@@ -1,9 +1,10 @@
-from websockets.sync.client import connect
+import asyncio
+import websockets
 
-URL = "ws://127.0.0.1:65432"
+async def client():
+    async with websockets.connect("ws://localhost:8000") as websocket:
+        await websocket.send("Hello server!")
+        response = await websocket.recv()
+        print("Server replied:", response)
 
-with connect(URL) as websocket:
-    websocket.send("Hello, world")
-    data = websocket.recv()
-
-    print(f"Received: {data}")
+asyncio.run(client())
