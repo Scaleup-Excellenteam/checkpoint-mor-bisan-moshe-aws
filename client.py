@@ -2,11 +2,28 @@ import asyncio
 import websockets
 
 
-async def test_client():
-    uri = "ws://127.0.0.1:8000/ws" #change 127.0.0.1 to the real IPv4 Address of server laptop
-    async with websockets.connect(uri) as ws:
-        await ws.send("Hello FastAPI server!")
-        response = await ws.recv()
-        print("Server replied:", response)
+async def receive_messages(ws):
+    while True:
+        message = await ws.recv()
+        print("\nReceived:", message)
 
-asyncio.run(test_client())
+
+async def send_messages(ws):
+    while True:
+        message = await asyncio.to_thread(input, "> ")
+        await ws.send(message)
+
+
+async def chat_client():
+    uri = "ws://127.0.0.1:8000/ws"
+
+    async with websockets.connect(uri) as ws:
+        print("Connected to server")
+
+        await asyncio.gather(
+            receive_messages(ws),
+            send_messages(ws)
+        )
+
+
+asyncio.run(chat_client())
