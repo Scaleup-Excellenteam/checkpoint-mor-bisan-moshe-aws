@@ -1,19 +1,14 @@
-from websockets.sync.server import serve
+from fastapi import FastAPI, WebSocket
 
-HOST = "127.0.0.1"
-PORT = 65432
+app = FastAPI()
 
+@app.websocket("/ws")
+async def websocket_endpoint(websocket: WebSocket):
+    await websocket.accept()
+    data = await websocket.receive_text()
+   
+    await websocket.send_text(f"You said: {data}")
 
-def handle_client(websocket):
-    print("Client connected")
-
-    for message in websocket:
-        print(f"Client sent: {message}")
-        websocket.send(message)  # Echo back to this client
-
-    print("Client disconnected")
-
-
-with serve(handle_client, HOST, PORT) as server:
-    print(f"Server listening on ws://{HOST}:{PORT}")
-    server.serve_forever()
+if __name__ == "__main__":
+    import uvicorn
+    uvicorn.run(app, host="0.0.0.0", port=8000)

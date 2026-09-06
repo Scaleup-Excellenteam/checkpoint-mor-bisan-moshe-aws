@@ -1,9 +1,12 @@
-from websockets.sync.client import connect
+import asyncio
+import websockets
 
-URL = "ws://127.0.0.1:65432"
 
-with connect(URL) as websocket:
-    websocket.send("Hello, world")
-    data = websocket.recv()
+async def test_client():
+    uri = "ws://127.0.0.1:8000/ws" #change 127.0.0.1 to the real IPv4 Address of server laptop
+    async with websockets.connect(uri) as ws:
+        await ws.send("Hello FastAPI server!")
+        response = await ws.recv()
+        print("Server replied:", response)
 
-    print(f"Received: {data}")
+asyncio.run(test_client())
