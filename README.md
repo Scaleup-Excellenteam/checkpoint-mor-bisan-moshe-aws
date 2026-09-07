@@ -14,7 +14,7 @@ chat_system/                  # Authentication, database, security modules/contr
 config/                       # schema.sql and dlp_rules.json
 scripts/                      # Offline smoke and load tools
 tests/                        # Unit, integration and configuration tests
-ui/                           # Static browser UI, protocol client and UI tests
+ui/                           # Modular browser UI (DOM, transport/state, health), styles and tests
 docs/
   LOAD_TEST_REPORT.md
   setup/                      # Ollama and URL setup notes
@@ -53,7 +53,8 @@ initialization command is needed. `CHAT_DATABASE` and `CHAT_LOG` override `chat.
 and `chat.log`. Run one server process/worker because sessions, room presence,
 security windows and reputation caches are in memory.
 
-In two or more separate terminals:
+Open `http://127.0.0.1:8000/` in two browser windows, or use the CLI as an
+alternative in two or more separate terminals:
 
 ```powershell
 ./.venv/Scripts/python.exe client.py --uri ws://127.0.0.1:8000/ws
@@ -79,22 +80,26 @@ arguments with the defaults shown above, not environment variables.
 
 ## Browser UI
 
-Start the existing server with the command above. In a second terminal, serve only
-the UI directory (never the repository root, which contains the private `.env`):
+Start the server once with the command above, then open `http://127.0.0.1:8000/`.
+On another computer on the same network, open `http://SERVER_LAN_IP:8000/`.
+No frontend server, npm install, or build is needed. FastAPI serves `/` and
+`/static/*` from the project UI directory, alongside `/ws` and `/health`.
+Only port 8000 needs to be reachable; see the firewall notes above.
 
-```powershell
-./.venv/Scripts/python.exe ui/serve.py
-```
+The WebSocket address defaults to the current page's host/port: HTTP uses `ws://`
+and HTTPS uses `wss://`. Click **Connect**; the optional address field supports
+development against another server. This does not configure TLS: the included
+server uses unencrypted HTTP/WS. HTTPS/WSS would require separate TLS deployment.
+The UI itself needs neither Ollama nor a VirusTotal key.
 
-Open `http://127.0.0.1:8080` in a current Chrome, Edge, Firefox, or Safari browser.
-No npm install or build is needed. The launcher fixes JavaScript MIME types on
-Windows and accepts optional `--host` and `--port` arguments. Enter the server
-WebSocket address, such as
-`ws://127.0.0.1:8000/ws`, and click **Connect**. For another server computer, use
-its reachable LAN address. The UI itself needs neither Ollama nor a VirusTotal key.
-For an HTTPS-hosted UI, use a reachable `wss://` server; browsers block insecure
-WebSocket connections from HTTPS pages. The included local HTTP launcher is for
-development; deploy static assets and transport security appropriately for hosting.
+The separate **Server online / Server unavailable** indicator checks HTTP health
+on page load, reconnect, and every 30 seconds, with a five-second timeout. It does
+not represent WebSocket login or security-service availability. WebSocket status
+remains visible separately. Health requests send no credentials. A cross-origin
+development override may show unavailable if that server does not permit CORS,
+even while its WebSocket works; normal same-server use needs no CORS setup.
+The optional `ui/serve.py` development helper remains available but is not needed
+for normal use. Never serve the repository root containing `.env`.
 
 1. **Sign up**, then **Log in**. Usernames are normalized; passwords are masked,
    never trimmed, and cleared after submission. Validation feedback does not
@@ -103,17 +108,23 @@ development; deploy static assets and transport security appropriately for hosti
    choose **Select**. Create/join/select selects that room and loads its history.
    Only the selected room receives live messages. The server's room list contains
    no membership flags, so the UI labels only membership observed this session.
+   **Filter rooms** searches loaded names case-insensitively without changing
+   membership or selection; clear it to restore the list. A failed selection of
+   another room preserves the current room.
 3. Send a message. **Checking message…** remains visible during server security
    checks; incoming messages and draft editing continue. Commands are serialized
    while a request is pending, matching the server's per-connection processing.
    Only actual `room_message` events enter the conversation; rejected text stays
    in the composer for editing. History and events are deduplicated by `message_id`.
+   History also refreshes timestamps on existing live-message entries.
 4. **Leave room** ends membership. **Reconnect** or **Disconnect** clears the local
    session and displayed history. Log in and select a room again to recover history.
    No passwords, session tokens, or chat data are saved to browser storage.
 
-The UI sends only the existing JSON WebSocket operations to `/ws`; it adds no
-backend routes or changes. Sender names come from server responses and events.
+The UI sends only the existing JSON WebSocket operations to `/ws`; the additional
+HTTP routes serve static UI files only. Sender names come from server responses and events.
+Security errors distinguish blocked content, unsafe links, uncertain link safety,
+and unavailable checks without exposing scores, provider details or protected terms.
 Message content is rendered as plain text, including HTML and links. A disconnect
 or 180-second request timeout can leave delivery unknown: reconnect and check
 history before retrying. Messages are never automatically resent. History is
@@ -128,11 +139,11 @@ adapters with controlled external model/provider responses. Browser tests use
 optional Playwright tooling; neither Node nor Playwright is needed to use the UI.
 
 ```powershell
-node --test ui/tests/protocol.test.mjs
+node --test ui/tests/protocol.test.mjs ui/tests/health.test.mjs
 ./.venv/Scripts/python.exe -m pip install -r ui/requirements-test.txt
 ./.venv/Scripts/python.exe -m playwright install chromium
 $env:PYTHON_DOTENV_DISABLED = "1"
-./.venv/Scripts/python.exe -m pytest -q tests/test_ui_protocol.py tests/test_ui_browser.py
+./.venv/Scripts/python.exe -m pytest -q tests/test_ui_protocol.py tests/test_ui_browser.py tests/test_ui_serving.py
 ```
 
 The browser test exercises two users at desktop/mobile widths, signup without

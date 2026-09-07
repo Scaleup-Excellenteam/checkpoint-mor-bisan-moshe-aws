@@ -1,6 +1,10 @@
 import {ChatConnection, ChatError, MessageStore, normalizeUsername, validUsername, validPassword} from './protocol.mjs';
+import {HealthMonitor, defaultWebSocketURL} from './health.mjs';
 
 const $ = id => document.getElementById(id);
+$('address').value = defaultWebSocketURL(window.location);
+const health = new HealthMonitor({onStatus: text => { $('health-status').textContent = text; }});
+health.start($('address').value);
 const store = new MessageStore();
 let status = 'disconnected', username = null, selected = null, groups = [], memberships = new Map();
 let mode = 'login', busy = false, sending = false, epoch = 0;
@@ -53,13 +57,23 @@ async function run(operation, isSend = false) {
     // Transport failures remain useful after they have reset the session.
     if (current === epoch || ['disconnected', 'timeout'].includes(error.code)) {
       if (error.code === 'unauthenticated') client.disconnect();
-      if (['not_active_member', 'room_not_selected'].includes(error.code) && selected) {
-        if (error.code === 'not_active_member') memberships.set(selected.room_id, false);
-        selected = null; renderRooms(); renderMessages();
-      }
       notice(error instanceof ChatError ? error.message : 'Could not complete the operation. Check the server address and connection.', true);
     }
   } finally { if (current === epoch) { busy = false; sending = false; renderControls(); } }
+}
+async function roomRequest(action, fields) {
+  const target = groups.find(group => group.room_name === fields.room_name) ||
+    (selected?.room_name === fields.room_name ? selected : null);
+  try { return await client.request(action, fields); }
+  catch (error) {
+    // A rejected selection of another room must not invalidate the current room.
+    if (target && ['not_active_member', 'room_not_selected'].includes(error.code)) {
+      if (error.code === 'not_active_member') memberships.set(target.room_id, false);
+      if (selected?.room_id === target.room_id) selected = null;
+      renderRooms(); renderMessages();
+    }
+    throw error;
+  }
 }
 function setMode(next) {
   mode = next; $('password').value = '';
@@ -72,11 +86,12 @@ function setMode(next) {
 $('login-tab').onclick = () => setMode('login');
 $('signup-tab').onclick = () => setMode('signup');
 $('connect').onclick = async () => {
-  try { await client.connect($('address').value.trim()); }
+  try { health.start($('address').value.trim()); await client.connect($('address').value.trim()); }
   catch (error) { notice(error instanceof ChatError ? error.message : 'Enter a valid ws:// or wss:// server address (for example ws://127.0.0.1:8000/ws).', true); }
 };
 $('disconnect').onclick = () => client.disconnect();
-window.addEventListener('pagehide', () => client.disconnect());
+window.addEventListener('pagehide', () => { health.stop(); client.disconnect(); });
+window.addEventListener('pageshow', event => { if (event.persisted) health.start($('address').value.trim()); });
 $('auth-form').onsubmit = event => {
   event.preventDefault();
   const name = normalizeUsername($('username').value);
@@ -98,8 +113,11 @@ async function listRooms() {
   const result = await client.request('list_groups'); groups = result.groups; renderRooms();
 }
 function renderRooms() {
-  $('rooms').replaceChildren(); $('rooms-empty').hidden = groups.length > 0;
-  for (const group of groups) {
+  const query = $('room-filter').value.toLowerCase();
+  const visible = groups.filter(group => group.room_name.toLowerCase().includes(query));
+  $('rooms').replaceChildren(); $('rooms-empty').hidden = visible.length > 0;
+  $('rooms-empty').textContent = groups.length ? 'No rooms match your filter.' : 'No rooms yet. Create the first one.';
+  for (const group of visible) {
     const item = document.createElement('li'); item.className = 'room';
     item.classList.toggle('selected', selected?.room_id === group.room_id);
     const name = document.createElement('div'); name.className = 'room-name'; name.textContent = `# ${group.room_name}`;
@@ -117,7 +135,7 @@ function renderRooms() {
 }
 async function chooseRoom(action, name) {
   if (!name.trim() || name !== name.trim()) throw new ChatError('invalid_room_name');
-  const result = await client.request(action, {room_name: name});
+  const result = await roomRequest(action, {room_name: name});
   selected = {room_id: result.room_id, room_name: groups.find(g => g.room_id === result.room_id)?.room_name || result.room_name};
   memberships.set(selected.room_id, true); $('message').value = '';
   renderRooms(); renderMessages(); renderControls();
@@ -127,16 +145,17 @@ async function chooseRoom(action, name) {
 }
 $('room-form').onsubmit = event => { event.preventDefault(); run(() => chooseRoom(event.submitter?.dataset.action || 'create_group', $('room-name').value)); };
 $('refresh-rooms').onclick = () => run(listRooms);
+$('room-filter').oninput = renderRooms;
 async function loadHistory() {
   if (!selected) return;
   const room = selected;
-  const result = await client.request('history', {room_name: room.room_name});
+  const result = await roomRequest('history', {room_name: room.room_name});
   store.add(room.room_id, result.messages); renderMessages();
 }
 $('history').onclick = () => run(loadHistory);
 $('leave').onclick = () => run(async () => {
   const room = selected;
-  await client.request('leave_group', {room_name: room.room_name});
+  await roomRequest('leave_group', {room_name: room.room_name});
   memberships.set(room.room_id, false); store.rooms.delete(room.room_id); selected = null; $('message').value = '';
   renderRooms(); renderMessages(); notice(`You left ${room.room_name}. Join again to participate.`);
 });
@@ -150,7 +169,12 @@ function renderMessages() {
   const existing = new Map([...box.children].map(node => [node.dataset.id, node]));
   for (const message of messages) {
     const key = String(message.message_id);
-    if (existing.has(key)) continue;
+    if (existing.has(key)) {
+      const item = existing.get(key);
+      item.querySelector('.message-meta').textContent = message.username + (message.sent_at ? ` · ${message.sent_at}` : '');
+      item.querySelector('.message-body').textContent = message.content;
+      continue;
+    }
     const item = document.createElement('article'); item.className = 'message'; item.dataset.id = key;
     item.classList.toggle('own', message.username === username);
     const meta = document.createElement('div'); meta.className = 'message-meta';
@@ -171,7 +195,7 @@ $('message-form').onsubmit = event => {
   const room = selected;
   run(async () => {
     notice('Checking your message. Incoming messages will continue to appear.');
-    await client.request('send_message', {room_name: room.room_name, content});
+    await roomRequest('send_message', {room_name: room.room_name, content});
     // Only room_message events render sent content. Preserve edits made during checking.
     if ($('message').value === content) $('message').value = '';
     notice('Message accepted.');

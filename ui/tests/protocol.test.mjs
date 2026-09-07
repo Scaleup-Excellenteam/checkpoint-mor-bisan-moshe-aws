@@ -19,7 +19,9 @@ test('authentication contract boundaries and category combinations', () => {
   for (const value of ['abcd1234', 'abcd@#$%', '1234@#$%', 'a1'.repeat(16)]) assert.ok(validPassword(value));
   for (const value of ['abcdefgh', 'ABCDEFGH', '12345678', '@#$%^&*@', 'abc123!', 'abc123', 'a1'.repeat(17), ' abcd1234', 'abcd1234 ', 'abcd1234\n']) assert.equal(validPassword(value), false);
   assert.equal(friendlyError('invalid_credentials'), 'Incorrect username or password.');
-  for (const code of ['security_check_unavailable', 'reputation_unavailable', 'reputation_review_required']) assert.equal(friendlyError(code), 'The security check is unavailable. Try again later.');
+  const securityCodes = ['security_check_unavailable', 'reputation_unavailable', 'reputation_review_required', 'malicious_url', 'forbidden_term', 'recipe_blocked'];
+  assert.equal(new Set(securityCodes.map(friendlyError)).size, 6);
+  for (const code of securityCodes) assert.doesNotMatch(friendlyError(code), /score|pineapple|prompt|token|VirusTotal|Ollama/i);
   assert.ok(!friendlyError('secret exception').includes('secret'));
 });
 test('one receiver correlates out-of-order responses while events arrive; authoritative token', async () => {

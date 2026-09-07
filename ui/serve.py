@@ -21,6 +21,12 @@ class UIHandler(SimpleHTTPRequestHandler):
         self.send_header('X-Content-Type-Options', 'nosniff')
         super().end_headers()
 
+    def do_GET(self):
+        # Optional standalone development server uses the production asset paths.
+        if self.path.startswith('/static/'):
+            self.path = self.path[len('/static'):]
+        super().do_GET()
+
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)

@@ -1,29 +1,13 @@
 """Rendered UI checks against the existing server; external security services are controlled."""
-from http.server import ThreadingHTTPServer
-import threading
-
 import pytest
 from test_security_integration import secured_server
-from ui.serve import UIHandler
 
 playwright = pytest.importorskip('playwright.sync_api')
 
 
 @pytest.fixture
-def ui_address():
-    class QuietHandler(UIHandler):
-        def log_message(self, *args):
-            pass
-
-    http = ThreadingHTTPServer(('127.0.0.1', 0), QuietHandler)
-    thread = threading.Thread(target=http.serve_forever, daemon=True)
-    thread.start()
-    try:
-        yield f'http://127.0.0.1:{http.server_port}'
-    finally:
-        http.shutdown()
-        http.server_close()
-        thread.join(5)
+def ui_address(secured_server):
+    return secured_server.health.removesuffix('/health')
 
 
 def login(page, name):
@@ -36,7 +20,8 @@ def login(page, name):
 
 def register(page, ui_address, uri, name):
     page.goto(ui_address)
-    page.locator('#address').fill(uri)
+    playwright.expect(page.locator('#address')).to_have_value(uri)
+    playwright.expect(page.locator('#health-status')).to_have_text('Server online')
     page.locator('#connect').click()
     playwright.expect(page.locator('#connection-status')).to_have_text('Connected')
     page.locator('#signup-tab').click()
@@ -52,6 +37,16 @@ def register(page, ui_address, uri, name):
 def send(page, text):
     page.locator('#message').fill(text)
     page.locator('#send').click()
+
+
+def close_browser(browser):
+    # Complete the application's close handshake before terminating Chromium.
+    for context in browser.contexts:
+        for page in context.pages:
+            if not page.is_closed() and page.locator('#disconnect').count() and page.locator('#disconnect').is_enabled():
+                page.locator('#disconnect').click()
+                playwright.expect(page.locator('#connection-status')).to_have_text('Disconnected')
+    browser.close()
 
 
 def test_rendered_chat_security_and_reconnect(secured_server, ui_address, tmp_path):
@@ -78,10 +73,14 @@ def test_rendered_chat_security_and_reconnect(secured_server, ui_address, tmp_pa
             playwright.expect(bob.locator('.message-body')).to_have_text('<img src=x onerror=alert(1)> hello')
             assert bob.locator('#messages img').count() == 0
             playwright.expect(alice.locator('#send')).to_be_enabled()
+            playwright.expect(alice.locator('.message-meta')).to_have_text('alice')
+            alice.locator('.message').evaluate('(node) => { window.originalMessage = node; }')
             alice.locator('#history').click()
             playwright.expect(alice.locator('#send')).to_be_enabled()
             assert alice.locator('.message-body').count() == 1
             assert 'alice' in alice.locator('.message-meta').inner_text()
+            assert ' · ' in alice.locator('.message-meta').inner_text()
+            assert alice.locator('.message').evaluate('(node) => node === window.originalMessage')
 
             controls.slow = 'llm'
             controls.mode = 'block'
@@ -135,4 +134,88 @@ def test_rendered_chat_security_and_reconnect(secured_server, ui_address, tmp_pa
             assert not errors
         finally:
             controls.release.set()
-            browser.close()
+            close_browser(browser)
+
+
+def test_target_room_errors_filter_and_security_messages(secured_server, ui_address):
+    controls = secured_server
+    with playwright.sync_playwright() as pw:
+        browser = pw.chromium.launch()
+        try:
+            alice, bob = browser.new_page(), browser.new_page(viewport={'width': 390, 'height': 844})
+            register(alice, ui_address, controls.uri, 'alice')
+            register(bob, ui_address, controls.uri, 'bobby')
+            playwright.expect(alice.locator('#rooms-empty')).to_have_text('No rooms yet. Create the first one.')
+            for page, room in [(alice, 'General'), (bob, 'Other')]:
+                page.locator('#room-name').fill(room)
+                page.get_by_role('button', name='Create', exact=True).click()
+                playwright.expect(page.locator('#room-title')).to_have_text('# ' + room)
+                playwright.expect(page.locator('#send')).to_be_enabled()
+            alice.locator('#refresh-rooms').click()
+            alice.get_by_role('button', name='Select Other', exact=True).click()
+            playwright.expect(alice.locator('#notice')).to_have_text('You are not a member of this room. Join it first.')
+            playwright.expect(alice.locator('#room-title')).to_have_text('# General')
+            playwright.expect(alice.locator('.room.selected .room-meta')).to_have_text('Selected · live')
+            playwright.expect(alice.locator('#send')).to_be_enabled()
+            alice.locator('#room-filter').fill('gEnE')
+            playwright.expect(alice.locator('#rooms .room')).to_have_count(1)
+            playwright.expect(alice.locator('#rooms .room-name')).to_have_text('# General')
+            alice.locator('#room-filter').fill('not found')
+            playwright.expect(alice.locator('#rooms-empty')).to_have_text('No rooms match your filter.')
+            playwright.expect(alice.locator('#room-title')).to_have_text('# General')
+            alice.locator('#room-filter').fill('')
+            playwright.expect(alice.locator('#rooms .room')).to_have_count(2)
+            # Filtering never mutates membership: after a successful switch the old room remains active.
+            alice.get_by_role('button', name='Join Other', exact=True).click()
+            playwright.expect(alice.locator('#room-title')).to_have_text('# Other')
+            playwright.expect(alice.locator('.room').filter(has_text='# General').locator('.room-meta')).to_have_text('Member · not selected')
+            alice.get_by_role('button', name='Select General', exact=True).click()
+            playwright.expect(alice.locator('#room-title')).to_have_text('# General')
+
+            send(alice, 'I enjoy pizza')
+            playwright.expect(alice.locator('.message-body')).to_have_count(1)
+            # Controlled model allow verifies the UI flow, not actual model accuracy.
+            controls.mode = 'allow'
+            send(alice, 'Chocolate cake: mix 200 g flour with sugar and bake for 20 minutes')
+            playwright.expect(alice.locator('.message-body')).to_have_count(2)
+            assert controls.llm_calls
+            for text, mode, message in [
+                ('pizza 200 g flour', 'block', 'This message was blocked by the security policy.'),
+                ('another recipe fragment', 'timeout', 'The security check is unavailable. Try again later.'),
+                ('https://evil.example.com', 'allow', 'This message contains an unsafe link.'),
+                ('https://timeout.example.com', 'allow', 'Link safety could not be checked. Try again later.'),
+                ('https://review.example.com', 'allow', 'This link could not be confirmed safe. Remove it before sending.'),
+                ('pineapple', 'allow', 'This name or message is not allowed.'),
+            ]:
+                controls.mode = mode
+                send(alice, text)
+                playwright.expect(alice.locator('#notice')).to_have_text(message)
+                playwright.expect(alice.locator('.message-body')).to_have_count(2)
+            alice.locator('#history').click()
+            playwright.expect(alice.locator('#send')).to_be_enabled()
+            playwright.expect(alice.locator('.message-body')).to_have_count(2)
+            assert alice.locator('#password').get_attribute('type') == 'password'
+            assert alice.evaluate('localStorage.length + sessionStorage.length') == 0
+        finally:
+            close_browser(browser)
+
+
+def test_http_health_is_independent_of_websocket(ui_address):
+    with playwright.sync_playwright() as pw:
+        browser = pw.chromium.launch()
+        try:
+            page = browser.new_page()
+            page.route('**/health', lambda route: route.fulfill(status=503, body='unavailable'))
+            page.goto(ui_address)
+            playwright.expect(page.locator('#health-status')).to_have_text('Server unavailable')
+            page.locator('#connect').click()
+            playwright.expect(page.locator('#connection-status')).to_have_text('Connected')
+            playwright.expect(page.locator('#health-status')).to_have_text('Server unavailable')
+            page.unroute('**/health')
+            page.locator('#connect').click()
+            playwright.expect(page.locator('#health-status')).to_have_text('Server online')
+            page.locator('#disconnect').click()
+            playwright.expect(page.locator('#connection-status')).to_have_text('Disconnected')
+            playwright.expect(page.locator('#health-status')).to_have_text('Server online')
+        finally:
+            close_browser(browser)

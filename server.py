@@ -2,6 +2,7 @@
 import asyncio
 import json
 import logging
+import mimetypes
 import os
 import sqlite3
 from contextlib import asynccontextmanager
@@ -13,6 +14,8 @@ from dotenv import load_dotenv
 load_dotenv(Path(__file__).resolve().parent / ".env", override=False)
 
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
+from fastapi.responses import FileResponse
+from fastapi.staticfiles import StaticFiles
 from chat_system import auth
 from chat_system import database as db
 from chat_system.dlp import RuleDLPChecker
@@ -46,6 +49,16 @@ async def lifespan(app):
 
 
 app = FastAPI(lifespan=lifespan)
+UI_ROOT = Path(__file__).resolve().parent / "ui"
+mimetypes.add_type("text/javascript", ".mjs")
+# check_dir=False keeps imports usable in isolated backend-only test fixtures.
+app.mount("/static", StaticFiles(directory=UI_ROOT, check_dir=False), name="static")
+
+
+@app.get("/", include_in_schema=False)
+def ui():
+    return FileResponse(UI_ROOT / "index.html", headers={
+        "Cache-Control": "no-store", "X-Content-Type-Options": "nosniff"})
 
 
 @app.get("/health")
