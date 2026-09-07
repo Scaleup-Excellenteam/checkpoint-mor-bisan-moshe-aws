@@ -5,17 +5,7 @@ import sys
 from getpass import getpass
 from websockets.exceptions import ConnectionClosed
 from client import ChatClient
-
-
-SECURITY_ERRORS = {
-    "forbidden_term": "Blocked: forbidden protected term.",
-    "recipe_blocked": "Blocked: suspected recipe disclosure.",
-    "malicious_url": "Blocked: malicious URL reputation.",
-    "security_check_unavailable": "Blocked: local security check unavailable.",
-    "reputation_unavailable": "Blocked: URL reputation unavailable.",
-    "reputation_review_required": "Blocked: URL reputation needs review.",
-    "room_not_selected": "Select this room before sending a message.",
-}
+from chat_system.reason_codes import describe
 
 
 async def display_events(client):
@@ -71,7 +61,11 @@ async def chat_client(uri):
                 if response["ok"] and action == "leave_group" and room == selected:
                     selected = None
             if not response["ok"]:
-                print("Error:", response["error"], SECURITY_ERRORS.get(response["error"], ""))
+                print("Error:", response["error"], describe(response["error"]))
+                security = response.get("security")
+                if security:
+                    print(f"  security decision: action={security['action']} risk_score={security['risk_score']} "
+                          f"source={security['source']} reason_code={security['reason_code']}")
             elif "groups" in response:
                 for group in response["groups"]:
                     print(group["room_name"])

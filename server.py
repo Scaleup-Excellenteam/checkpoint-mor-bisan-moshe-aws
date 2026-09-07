@@ -13,6 +13,8 @@ from dotenv import load_dotenv
 load_dotenv(Path(__file__).resolve().parent / ".env", override=False)
 
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
+from fastapi.responses import FileResponse
+from fastapi.staticfiles import StaticFiles
 from chat_system import auth
 from chat_system import database as db
 from chat_system.dlp import RuleDLPChecker
@@ -20,8 +22,10 @@ from chat_system.local_llm import OllamaRecipeClassifier
 from chat_system.security_contracts import MessageSecurityContext
 from chat_system.security_policy import SecurityPolicy
 from chat_system.url_security import RegexURLExtractor, VirusTotalURLReputationChecker
+from chat_system.reason_codes import REQUEST_ERRORS, SECURITY_REASONS
 
 log = logging.getLogger("chat")
+STATIC_DIR = Path(__file__).resolve().parent / "static"
 
 
 @asynccontextmanager
@@ -51,6 +55,21 @@ app = FastAPI(lifespan=lifespan)
 @app.get("/health")
 def health():
     return {"ok": True, "status": "healthy"}
+
+
+@app.get("/api/reasons")
+def reasons():
+    """Display text for security reason codes and request errors (Web UI and docs)."""
+    return {"security": SECURITY_REASONS, "errors": REQUEST_ERRORS}
+
+
+@app.get("/", include_in_schema=False)
+def web_ui():
+    """Browser client speaking the same WebSocket protocol as cli.py."""
+    return FileResponse(STATIC_DIR / "index.html")
+
+
+app.mount("/static", StaticFiles(directory=STATIC_DIR, check_dir=False), name="static")
 
 
 class InvalidRequest(Exception):

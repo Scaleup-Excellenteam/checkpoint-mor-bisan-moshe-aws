@@ -1,0 +1,100 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>TSPO Secret Slice Chat</title>
+  <link rel="stylesheet" href="/static/styles.css">
+</head>
+<body>
+  <header class="topbar">
+    <div class="brand">
+      <span class="logo" aria-hidden="true">&#127829;</span>
+      <div>
+        <h1>TSPO Secret Slice Chat</h1>
+        <p class="tagline">Top-Secret Pizza Lovers Organization &middot; server-side DLP and Anti-Bot</p>
+      </div>
+    </div>
+    <div class="status-group">
+      <span id="ws-status" class="pill pill-off" title="WebSocket connection">disconnected</span>
+      <span id="health-status" class="pill pill-off" title="GET /health">health: unknown</span>
+      <span id="server-label" class="server-label"></span>
+      <button id="btn-disconnect" class="btn btn-ghost" type="button" title="Close the WebSocket to demonstrate a disconnect">Disconnect</button>
+      <button id="btn-reconnect" class="btn btn-ghost" type="button" title="Reopen the WebSocket, restore session and room">Reconnect</button>
+    </div>
+  </header>
+
+  <main class="layout">
+    <aside class="sidebar">
+      <section class="card" id="auth-card">
+        <h2>Identity</h2>
+        <form id="auth-form" autocomplete="off">
+          <label for="username">Username</label>
+          <input id="username" name="username" type="text" placeholder="3-20 letters, digits, _" required>
+          <label for="password">Password</label>
+          <input id="password" name="password" type="password" placeholder="8-32 chars, two categories" required>
+          <div class="row">
+            <button id="btn-signup" class="btn" type="button">Sign up</button>
+            <button id="btn-login" class="btn btn-primary" type="button">Log in</button>
+          </div>
+        </form>
+        <div id="auth-info" class="hidden">
+          <p>Logged in as <strong id="me"></strong></p>
+          <button id="btn-logout" class="btn btn-ghost" type="button">Log out (forget token)</button>
+        </div>
+        <p id="auth-message" class="hint"></p>
+      </section>
+
+      <section class="card" id="rooms-card">
+        <div class="card-head">
+          <h2>Rooms</h2>
+          <button id="btn-refresh-rooms" class="btn btn-ghost btn-small" type="button" title="list_groups">Refresh</button>
+        </div>
+        <form id="create-form" class="row">
+          <input id="new-room" type="text" placeholder="New room name" required>
+          <button class="btn btn-small" type="submit">Create</button>
+        </form>
+        <ul id="room-list" class="room-list"></ul>
+        <p class="hint">Join makes you a member. Open selects the room on this connection for live delivery. Leave stops delivery and membership.</p>
+      </section>
+    </aside>
+
+    <section class="chat card">
+      <div class="card-head">
+        <h2 id="room-title">No room selected</h2>
+        <div class="row">
+          <button id="btn-history" class="btn btn-ghost btn-small" type="button" disabled title="history">Reload history</button>
+          <button id="btn-leave" class="btn btn-ghost btn-small" type="button" disabled title="leave_group">Leave room</button>
+        </div>
+      </div>
+      <div id="messages" class="messages" aria-live="polite"></div>
+      <div id="banner" class="banner hidden" role="alert"></div>
+      <form id="send-form" class="composer">
+        <input id="message" type="text" placeholder="Log in and open a room to chat" autocomplete="off" disabled maxlength="4000">
+        <button id="btn-send" class="btn btn-primary" type="submit" disabled>Send</button>
+      </form>
+    </section>
+
+    <aside class="sidebar">
+      <section class="card" id="security-card">
+        <div class="card-head">
+          <h2>Security decisions</h2>
+          <button id="btn-clear-decisions" class="btn btn-ghost btn-small" type="button">Clear</button>
+        </div>
+        <p class="hint">Every rejected request appears here with its action, reason code, risk score and source. Blocked content is never stored or delivered.</p>
+        <ul id="decisions" class="decisions"></ul>
+      </section>
+
+      <section class="card" id="log-card">
+        <div class="card-head">
+          <h2>Protocol log</h2>
+          <button id="btn-clear-log" class="btn btn-ghost btn-small" type="button">Clear</button>
+        </div>
+        <pre id="protocol-log" class="protocol-log"></pre>
+      </section>
+    </aside>
+  </main>
+
+  <script src="/static/app.js"></script>
+</body>
+</html>
