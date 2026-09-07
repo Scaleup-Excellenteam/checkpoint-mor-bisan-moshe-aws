@@ -151,11 +151,14 @@ before creating database records. Username normalization stays in `chat_system/a
 room names retain the existing nonempty, already-trimmed rule. Names do not use
 recipe scoring, LLM or URL checks. Existing accounts/rooms are not migrated.
 
-`chat_system/security_policy.py` holds up to ten prior attempted messages per `(user_id,
-room_id)`, including blocked attempts, and evaluates them with the current text.
+`chat_system/security_policy.py` evaluates at most ten total attempts including the current
+message per `(user_id, room_id)`. Blocked attempts remain in that window. Entries
+expire at five minutes using a monotonic clock; expiry is applied on the next
+attempt for that key. At most nine valid previous attempts reach the classifier.
 These security-only windows never enter SQLite. Per-user/room locks preserve their
 order while unrelated windows can proceed during slow checks. The count of
-user/room windows is not currently capped or expired; each window is capped at ten.
+user/room keys is not currently capped; expired data is pruned when that key is
+next used, rather than by a background timer.
 The shared async lock is never held for model/provider I/O. `/health`, other users,
 and other rooms remain responsive under the tested workload; this is not a capacity
 guarantee under arbitrary thread-pool saturation.
@@ -174,8 +177,18 @@ receive deterministic score 100 and immediate blocking. Normal pizza discussion
 is allowed. Recipe clues accumulate across the window: pizza/dough/sauce +10;
 distinct ingredients +5 each (cap 20); quantity/unit +20; preparation +15;
 time/temperature +15; sequence markers +10; at least three categories in one
-attempt +10. Recipe scores cap at 99. Scores 0-29 skip the model; 30-99 request
-review. These heuristics are not a guarantee of detection or zero false positives.
+attempt +10; recipe/recipes intent +10; ingredient/ingredients intent +5.
+Canonical aliases count once (tomato/tomatoes is one ingredient). Approved
+grammatical forms, explicit typos, substitutions and selected homoglyphs are
+recognized without general soft-word fuzzy matching. Quantity units also include
+ounces, pounds, pinches and cloves; written one through ten, half and quarter are
+recognized. Recipe scores cap at 99. Scores 0-29 skip the model; 30-99 request
+review. Category signals accumulate once across the valid window, not once per
+message; repeated words do not raise the score. The LLM judges whether the current
+message discloses or materially continues a pizza recipe. Ordinary discussion,
+recipe-existence mentions, unrelated chocolate-cake recipes and neutral follow-ups
+should be allowed; this prompt behavior still requires real-model evaluation.
+These heuristics are not a guarantee of detection or zero false positives.
 
 Install Ollama manually using [the official download](https://ollama.com/download).
 In a separate terminal, configure its [local-only mode](https://docs.ollama.com/faq#how-do-i-disable-ollama-cloud-features) and start the runtime:
@@ -267,16 +280,23 @@ Existing errors remain: `invalid_username`, `invalid_password`, `username_taken`
 `invalid_credentials`, `unauthenticated`, `invalid_request`, `invalid_json`,
 `unsupported_operation`, `invalid_room_name`, `group_not_found`,
 `group_already_exists`, `already_member`, `not_active_member`, `internal_error`.
-Logs record timestamps, operation/user/room IDs, decision action, score, source and
-reason, plus connection and message IDs. They exclude passwords, tokens, API keys,
+Message security logs use a shared attempt_id across stages: attempt user/room,
+window size/age, current and full-window deterministic scores/category counts,
+LLM action/score/duration/failure, URL count, each URL cache/API/local source and
+status/duration/failure, and final action/score/reason. A score is not calibrated
+confidence; adapter unavailability can produce 99. Skipped URL stages are explicitly
+labelled not_evaluated, not confused with no URL. Names retain deterministic
+operation logs. Connection and message IDs are also logged. They exclude passwords, tokens, API keys,
 model output and full blocked content. Unexpected failures return `internal_error`
 and a generic log entry, never exception text that could contain secrets.
+Successful sends display only the asynchronous chat event in the CLI; authentication
+and room-operation success messages and friendly rejection messages remain.
 
 ## Tests, load and security demo
 
 ```powershell
 $env:PYTHON_DOTENV_DISABLED = "1"
-./.venv/Scripts/python.exe -m pytest -q tests/test_environment.py
+./.venv/Scripts/python.exe -m pytest -q tests/test_environment.py tests/test_dlp_corrections.py
 ./.venv/Scripts/python.exe -m pytest -q tests/test_dlp.py tests/test_security_policy.py tests/test_local_llm.py tests/test_url_security.py
 ./.venv/Scripts/python.exe -m pytest -q
 ./.venv/Scripts/python.exe -m pytest -q tests/test_security_integration.py

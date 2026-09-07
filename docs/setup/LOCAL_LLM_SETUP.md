@@ -6,12 +6,16 @@ It returns the existing `SecurityDecision`; it adds no server or policy integrat
 
 The caller decides when to review deterministic scores 30-99. Do not call this
 adapter for ordinary scores 0-29 or deterministic score-100 blocks. The caller
-also owns the ten-attempt history window, including blocked attempts. This module
+also owns a ten-total-attempt, five-minute window including blocked attempts,
+supplying at most nine previous attempts plus the current text. This module
 preserves every supplied attempt in order and keeps no history between calls.
 
-There is no authoritative reference recipe. The prompt classifies recipe context
+There is no authoritative reference recipe. The prompt classifies current pizza-recipe disclosure or material continuation
 using only the supplied conversation; it does not compare against an invented
-formula or a built-in ingredient list.
+formula or a built-in ingredient list. Ordinary discussion, recipe-existence
+mentions, unrelated recipes such as chocolate cake and neutral current follow-ups
+are explicitly allowed by the prompt. Automated mocks do not establish real-model
+classification accuracy.
 
 ## Configuration
 

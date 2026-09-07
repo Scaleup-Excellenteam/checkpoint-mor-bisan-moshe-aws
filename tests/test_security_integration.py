@@ -172,7 +172,7 @@ def test_security_chat_and_names(secured_server, caplog):
             await asyncio.gather(*(client.close() for client in (a,b,c)))
 
     asyncio.run(run())
-    assert 'security operation=send_message' in caplog.text
+    assert 'stage=final' in caplog.text and 'stage=rules' in caplog.text
     for secret in ('Pineapple1', 'p!ne@pple', 'TEST_ONLY_KEY', 'SENSITIVE_INTERNAL_TEXT'):
         assert secret not in caplog.text
 

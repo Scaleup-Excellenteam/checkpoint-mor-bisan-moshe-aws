@@ -159,11 +159,13 @@ def test_real_websocket_flow(running_server):
 
 
 def test_real_cli(running_server):
-    script = '1\ncliuser\nPassword1\n2\ncliuser\nPassword1\n/create CLI Room\n/list\n/history\nhello from CLI\n/history\n/leave CLI Room\n/join CLI Room\n/select CLI Room\n/reconnect\n2\ncliuser\nPassword1\n/select CLI Room\n/history\n/quit\n'
+    script = '1\ncliuser\nPassword1\n2\ncliuser\nPassword1\n/create CLI Room\n/list\n/history\nhello from CLI\npineapple\n/history\n/leave CLI Room\n/join CLI Room\n/select CLI Room\n/reconnect\n2\ncliuser\nPassword1\n/select CLI Room\n/history\n/quit\n'
     result = subprocess.run([sys.executable, 'client.py', '--uri', running_server], input=script, text=True, capture_output=True, timeout=30, cwd=ROOT)
     assert result.returncode == 0, result.stderr
     for expected in ('signup: success', 'login: success', 'create_group: success', 'hello from CLI', 'leave_group: success', 'join_group: success', 'select_room: success', 'Reconnected.'):
         assert expected in result.stdout, result.stdout
+    assert 'send_message: success' not in result.stdout
+    assert 'Error: forbidden_term Blocked: forbidden protected term.' in result.stdout
     assert '[CLI Room] cliuser: hello from CLI' in result.stdout
     assert re.search(r'\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2} cliuser: hello from CLI', result.stdout)
 

@@ -62,9 +62,10 @@ def error(code):
 
 
 def security_result(decision, operation, user=None, room=None):
-    log.info("security operation=%s user=%s room=%s action=%s score=%s source=%s reason=%s",
-             operation, user, room, decision.action, decision.risk_score,
-             decision.source, decision.reason_code)
+    if operation != 'send_message':  # Message stages are correlated inside the policy.
+        log.info("security operation=%s user=%s room=%s action=%s rules_score=%s source=%s reason=%s",
+                 operation, user, room, decision.action, decision.risk_score,
+                 decision.source, decision.reason_code)
     if decision.action != "allow":
         return {"ok": False, "error": decision.reason_code,
                 "security": {"action": decision.action, "risk_score": decision.risk_score,

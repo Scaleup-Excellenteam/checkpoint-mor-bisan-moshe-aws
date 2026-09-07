@@ -105,7 +105,7 @@ def test_window_isolation_cap_and_blocked_attempts():
     checker, urls = Checker(decision('block', 100)), URLs()
     policy = SecurityPolicy(checker, Classifier(), urls, urls)
     for i in range(12): policy.evaluate(str(i), MessageSecurityContext(1, 1))
-    assert checker.calls[-1][2].recent_attempts == tuple(map(str, range(1, 11)))
+    assert checker.calls[-1][2].recent_attempts == tuple(map(str, range(2, 11)))
     assert tuple(policy._attempts[(1, 1)]) == tuple(map(str, range(2, 12)))
     for ctx in (MessageSecurityContext(2, 1), MessageSecurityContext(1, 2)):
         policy.evaluate('other', ctx)

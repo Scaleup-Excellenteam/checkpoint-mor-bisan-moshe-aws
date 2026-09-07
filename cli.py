@@ -78,7 +78,7 @@ async def chat_client(uri):
             elif "messages" in response:
                 for message in response["messages"]:
                     print(f"{message['sent_at']} {message['username']}: {message['content']}")
-            else:
+            elif action != "send_message":
                 print(f"{action}: success")
     except (EOFError, ConnectionError, ConnectionClosed, OSError, asyncio.TimeoutError) as exc:
         print("Connection ended:", exc, "Restart the client to reconnect.")

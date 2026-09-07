@@ -59,6 +59,7 @@ from urllib.parse import urlsplit, urlunsplit
 import httpx
 
 from chat_system.security_contracts import SecurityDecision
+from chat_system.security_logging import url_request, stage
 
 log = logging.getLogger("chat.url_security")
 
@@ -309,6 +310,33 @@ class VirusTotalURLReputationChecker:
     # -- public API --------------------------------------------------------
 
     def check(self, url: str) -> SecurityDecision:
+        trace = {'api_requested': False}
+        token = url_request.set(trace)
+        started = time.monotonic()
+        try:
+            result = self._check(url)
+            cache = result.details.get('cache_status')
+            source = 'cache' if cache in ('hit', 'coalesced') else ('api' if trace['api_requested'] else 'local')
+            # Only module-generated enumerations, never domain/details dictionaries.
+            detail = result.details.get('detail', 'none')
+            allowed = {'none', 'missing_api_key', 'rate_limited', 'timeout', 'request_error',
+                       'rate_limited_429', 'auth_error_401', 'auth_error_403', 'invalid_response',
+                       'internal_error', 'no_report', 'malicious_detections', 'single_malicious_detection',
+                       'suspicious_detections', 'no_analysis_timestamp', 'stale_report',
+                       'harmless_evidence', 'undetected_only', 'ip_internal_or_unparsable_host'}
+            status_detail = detail if detail in allowed else 'other_status'
+            stage('url_check', source=source, api_requested=trace['api_requested'],
+                  cache=cache if cache in ('hit', 'miss', 'coalesced') else 'unknown',
+                  action=result.action, risk_score=result.risk_score, status=result.reason_code,
+                  status_detail=status_detail,
+                  failure=status_detail if result.reason_code == REASON_UNAVAILABLE else 'none',
+                  http_status=trace.get('http_status', 'none'),
+                  duration_ms=round((time.monotonic()-started)*1000, 2))
+            return result
+        finally:
+            url_request.reset(token)
+
+    def _check(self, url):
         """Decision for one URL; the cache is consulted before the provider."""
         normalized = normalize_url(url) if isinstance(url, str) else None
         domain = hostname_of(normalized) if normalized else None
@@ -385,7 +413,6 @@ class VirusTotalURLReputationChecker:
         try:
             return self._fetch_and_decide_unsafe(domain)
         except Exception:
-            log.error("url_reputation_lookup_failed")
             return _unavailable(domain, "internal_error")
 
     def _fetch_and_decide_unsafe(self, domain: str) -> SecurityDecision:
@@ -400,9 +427,14 @@ class VirusTotalURLReputationChecker:
             return _unavailable(domain, "rate_limited")
 
         try:
+            trace = url_request.get()
+            if trace is not None:
+                trace['api_requested'] = True
             response = self._client.get(f"{VIRUSTOTAL_API_BASE_URL}/{domain}",
                                         headers={"x-apikey": self._api_key},
                                         timeout=REQUEST_TIMEOUT_SECONDS)
+            if trace is not None:
+                trace['http_status'] = response.status_code
         except httpx.TimeoutException:
             return _unavailable(domain, "timeout")
         except httpx.HTTPError:

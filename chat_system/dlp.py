@@ -6,7 +6,7 @@ of at least five characters, never abbreviations or arbitrary vocabulary.
 Separators may occur between letters, but matches must have word boundaries.
 Recipe weights are fixed by the shared decisions. Ingredients count distinctly;
 "several categories" means at least three in a single attempt. Other category
-bonuses count once over current + up to ten prior attempts. Hard matching checks
+bonuses count once over current + up to nine prior attempts. Hard matching checks
 only the current attempt, so old blocked terms do not permanently poison a room.
 """
 import json
@@ -75,8 +75,9 @@ class RuleDLPChecker:
                     raise ValueError('Fuzzy protected terms must be single words of length >= 5')
                 self.fuzzy_terms.append(term)
         recipe = rules['recipe']
-        self.vocabulary = {key: {normalize(word) for word in recipe[key]}
-                           for key in ('anchors', 'ingredients', 'actions', 'sequences')}
+        self.vocabulary = {key: {normalize(word) for word in recipe.get(key, [])}
+                           for key in ('anchors', 'ingredients', 'actions', 'sequences', 'intent', 'ingredient_intent')}
+        self.aliases = {normalize(k): normalize(v) for k, v in recipe.get('aliases', {}).items()}
         self.quantity = re.compile(recipe['quantity_pattern'])
         self.time_temperature = re.compile(recipe['time_temperature_pattern'])
 
@@ -94,13 +95,20 @@ class RuleDLPChecker:
             return SecurityDecision('block', 'forbidden_term', 100, 'rules')
         if field_name != 'message':
             return SecurityDecision('allow', 'content_allowed', 0, 'rules')
-        prior = context.recent_attempts[-CONTEXT_WINDOW_SIZE:] if context else ()
+        score, _ = self._soft_score(text, context)
+        return SecurityDecision('allow' if score <= ALLOW_MAX_SCORE else 'review',
+                                'recipe_low_risk' if score <= ALLOW_MAX_SCORE else 'recipe_review',
+                                score, 'rules')
+
+    def _soft_score(self, text, context=None):
+        prior = context.recent_attempts[-(CONTEXT_WINDOW_SIZE - 1):] if context else ()
         features = set()
         ingredients = set()
         multiple = False
         for attempt in (*prior, text):
             normalized = normalize(attempt)
-            words = set(re.findall(r'[^\W_]+', normalized))
+            words = {self.aliases.get(word, word) for word in
+                     re.findall(r'[^\W_]+', normalized.translate(self.translation))}
             present = {key for key, vocabulary in self.vocabulary.items() if words & vocabulary}
             ingredients.update(words & self.vocabulary['ingredients'])
             if self.quantity.search(normalized):
@@ -112,8 +120,10 @@ class RuleDLPChecker:
         score = (10 * ('anchors' in features) + min(len(ingredients) * 5, 20)
                  + 20 * ('quantity' in features) + 15 * ('actions' in features)
                  + 15 * ('time_temperature' in features) + 10 * ('sequences' in features)
+                 + 10 * ('intent' in features) + 5 * ('ingredient_intent' in features)
                  + 10 * multiple)
-        score = min(score, 99)
-        return SecurityDecision('allow' if score <= ALLOW_MAX_SCORE else 'review',
-                                'recipe_low_risk' if score <= ALLOW_MAX_SCORE else 'recipe_review',
-                                score, 'rules')
+        counts = {key: int(key in features) for key in
+                  ('anchors', 'actions', 'quantity', 'time_temperature', 'sequences', 'intent', 'ingredient_intent')}
+        counts['ingredients'] = len(ingredients)
+        counts['multiple'] = int(multiple)
+        return min(score, 99), counts
