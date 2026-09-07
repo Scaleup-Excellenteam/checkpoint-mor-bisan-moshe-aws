@@ -20,7 +20,7 @@ async def chat_client():
                 print("Please choose 1, 2, or 3.")
                 continue
 
-            username = await asyncio.to_thread(input, "Username: ")
+            username = (await asyncio.to_thread(input, "Username: ")).strip()
             password = await asyncio.to_thread(input, "Password: ")
             action = "signup" if choice == "1" else "login"
             request = {
