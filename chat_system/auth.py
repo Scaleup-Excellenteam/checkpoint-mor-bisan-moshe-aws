@@ -5,7 +5,7 @@ from typing import Any
 
 import bcrypt
 
-from database import create_user, get_user_by_username
+from chat_system.database import create_user, get_user_by_username
 
 
 sessions: dict[str, int] = {}

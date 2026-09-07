@@ -1,14 +1,15 @@
 # Shared Security Decisions
 
-This document and `security_contracts.py` must be merged before parallel branches are created. Agents may read all repository files but must edit only their assigned files.
+This document and `chat_system/security_contracts.py` must be merged before parallel branches are created. Agents may read all repository files but must edit only their assigned files.
 
 ## Policy
 
 - Inspect messages, usernames, and room names on the server. Never inspect passwords for DLP.
 - Hard-forbidden concepts include every explicitly configured alias, spelling variation, abbreviation, homoglyph and evasion form. A hard match returns score 100 and is blocked without an LLM call.
 - Recipe score: 0-29 allow; 30-99 local-LLM review; 100 deterministic block.
-- Initial scoring: pizza/dough/sauce anchor +10; each ingredient +5 capped at 20; quantity/unit +20; preparation action +15; time/temperature +15; sequence markers +10; several categories in one message +10. Cap recipe-rule scores at 99.
-- Keep the last 10 attempted messages per `(user_id, room_id)` in a bounded in-memory deque. Include blocked attempts in this security-only window. Approved messages are stored normally in SQLite; blocked messages are never stored as chat history or broadcast.
+- Scoring: pizza/dough/sauce anchor +10; each ingredient +5 capped at 20; quantity/unit +20; preparation action +15; time/temperature +15; sequence markers +10; several categories in one message +10. Recipe intent +10; ingredient-list intent +5. Canonical forms count once. Cap recipe-rule scores at 99.
+- Keep at most 10 total attempted messages including the current attempt, expiring entries at five minutes using a monotonic clock per `(user_id, room_id)` in a bounded in-memory deque. Include blocked attempts in this security-only window. Approved messages are stored normally in SQLite; blocked messages are never stored as chat history or broadcast.
+- The LLM judges current pizza-recipe disclosure or material continuation using context; allow neutral follow-ups, ordinary pizza discussion and unrelated recipes.
 - A local-LLM timeout/unavailability blocks reviewed content with `security_check_unavailable`.
 - Extract URLs from original text independently of DLP normalization. Support `http://`, `https://`, and `www.` initially.
 - URL blacklist and reputation cache are separate. Cache safe, malicious and unknown verdicts for 24 hours; check cache before the provider.
@@ -24,11 +25,11 @@ For username and room-name validation, run only the applicable deterministic DLP
 
 ## Ownership
 
-- Person 1: `dlp.py`, `dlp_rules.json`, `security_policy.py`, `tests/test_dlp.py`, `tests/test_security_policy.py`.
-- Person 2: `local_llm.py`, `tests/test_local_llm.py`, and local-model setup notes.
-- Person 3: `url_security.py`, `tests/test_url_security.py`, URL cache/provider configuration notes. Preserve existing URL work.
-- Person 4: `scripts/load_test.py`, `tests/test_concurrency.py`, `LOAD_TEST_REPORT.md`.
-- Nobody edits `security_contracts.py`, `server.py`, `client.py`, `cli.py`, `database.py`, `auth.py`, shared README, or another owner's files during parallel work.
+- Person 1: `chat_system/dlp.py`, `config/dlp_rules.json`, `chat_system/security_policy.py`, `tests/test_dlp.py`, `tests/test_security_policy.py`.
+- Person 2: `chat_system/local_llm.py`, `tests/test_local_llm.py`, and local-model setup notes.
+- Person 3: `chat_system/url_security.py`, `tests/test_url_security.py`, URL cache/provider configuration notes. Preserve existing URL work.
+- Person 4: `scripts/load_test.py`, `tests/test_concurrency.py`, `docs/LOAD_TEST_REPORT.md`.
+- Nobody edits `chat_system/security_contracts.py`, `server.py`, `client.py`, `cli.py`, `chat_system/database.py`, `chat_system/auth.py`, shared README, or another owner's files during parallel work.
 - Final server/client integration happens only after all branches are reviewed. One designated integrator performs it.
 
 ## Branch and Collaboration Rules

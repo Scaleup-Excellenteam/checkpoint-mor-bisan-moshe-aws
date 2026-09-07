@@ -4,9 +4,9 @@ from pathlib import Path
 from typing import Any
 
 
-BASE_DIR = Path(__file__).resolve().parent
+BASE_DIR = Path(__file__).resolve().parents[1]
 DATABASE_PATH = Path(os.environ.get("CHAT_DATABASE", str(BASE_DIR / "chat.db")))
-SCHEMA_PATH = BASE_DIR / "schema.sql"
+SCHEMA_PATH = BASE_DIR / "config" / "schema.sql"
 
 
 def get_connection() -> sqlite3.Connection:

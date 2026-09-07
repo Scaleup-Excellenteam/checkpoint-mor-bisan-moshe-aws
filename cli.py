@@ -7,6 +7,17 @@ from websockets.exceptions import ConnectionClosed
 from client import ChatClient
 
 
+SECURITY_ERRORS = {
+    "forbidden_term": "Blocked: forbidden protected term.",
+    "recipe_blocked": "Blocked: suspected recipe disclosure.",
+    "malicious_url": "Blocked: malicious URL reputation.",
+    "security_check_unavailable": "Blocked: local security check unavailable.",
+    "reputation_unavailable": "Blocked: URL reputation unavailable.",
+    "reputation_review_required": "Blocked: URL reputation needs review.",
+    "room_not_selected": "Select this room before sending a message.",
+}
+
+
 async def display_events(client):
     while True:
         event = await client.events.get()
@@ -60,14 +71,14 @@ async def chat_client(uri):
                 if response["ok"] and action == "leave_group" and room == selected:
                     selected = None
             if not response["ok"]:
-                print("Error:", response["error"])
+                print("Error:", response["error"], SECURITY_ERRORS.get(response["error"], ""))
             elif "groups" in response:
                 for group in response["groups"]:
                     print(group["room_name"])
             elif "messages" in response:
                 for message in response["messages"]:
                     print(f"{message['sent_at']} {message['username']}: {message['content']}")
-            else:
+            elif action != "send_message":
                 print(f"{action}: success")
     except (EOFError, ConnectionError, ConnectionClosed, OSError, asyncio.TimeoutError) as exc:
         print("Connection ended:", exc, "Restart the client to reconnect.")

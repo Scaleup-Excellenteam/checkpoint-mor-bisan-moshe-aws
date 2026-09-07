@@ -1,0 +1,158 @@
+{
+  "configuration_note": "Only pineapple and its configured aliases/evasions are hard-forbidden. Pizza, sauce, ingredients, quantities and instructions are weighted recipe clues, not automatic blocks. No ambiguous short abbreviations are approved.",
+  "protected_terms": [
+    {
+      "term": "pineapple",
+      "aliases": [
+        "pineapples",
+        "ananas",
+        "ananás",
+        "piña",
+        "pina",
+        "אננס"
+      ],
+      "abbreviations": [],
+      "one_edit_variants": [
+        "pinapple",
+        "pineaple",
+        "pineappel",
+        "pienapple",
+        "pineaplle"
+      ],
+      "fuzzy": true
+    }
+  ],
+  "separators": " ._-\t\r\n",
+  "substitutions": {
+    "0": "o",
+    "3": "e",
+    "4": "a",
+    "5": "s",
+    "7": "t",
+    "@": "a",
+    "$": "s",
+    "а": "a",
+    "е": "e",
+    "о": "o",
+    "р": "p",
+    "с": "c",
+    "х": "x",
+    "і": "i",
+    "α": "a",
+    "ο": "o",
+    "2": "z",
+    "ӏ": "l",
+    "ⅼ": "l",
+    "ρ": "p",
+    "ν": "v",
+    "ո": "n",
+    "η": "n",
+    "ι": "i",
+    "κ": "k",
+    "τ": "t",
+    "ϲ": "c",
+    "ζ": "z"
+  },
+  "recipe": {
+    "anchors": [
+      "pizza",
+      "dough",
+      "sauce"
+    ],
+    "ingredients": [
+      "flour",
+      "water",
+      "yeast",
+      "salt",
+      "sugar",
+      "oil",
+      "tomato",
+      "tomatoes",
+      "cheese",
+      "mozzarella",
+      "basil",
+      "garlic",
+      "onion",
+      "pepper",
+      "mushroom",
+      "olive",
+      "oregano",
+      "parmesan",
+      "pepperoni"
+    ],
+    "actions": [
+      "mix",
+      "knead",
+      "bake",
+      "stir",
+      "combine",
+      "roll",
+      "preheat",
+      "simmer",
+      "add"
+    ],
+    "sequences": [
+      "first",
+      "then",
+      "next",
+      "finally"
+    ],
+    "quantity_pattern": "\\b(?:\\d+(?:[.,/]\\d+)?|one|two|three|four|five|six|seven|eight|nine|ten|half|quarter)\\s*(?:g|kg|mg|ml|l|grams?|kilograms?|milligrams?|cups?|tablespoons?|teaspoons?|tbsp|tsp|liters?|litres?|oz|ounces?|lb|lbs|pounds?|pinch(?:es)?|cloves?)\\b",
+    "time_temperature_pattern": "\\b\\d+(?:[.,]\\d+)?\\s*(?:minutes?|mins?|hours?|hrs?|seconds?|degrees?|[cf])\\b|\\b\\d+\\s*°\\s*[cf]\\b",
+    "intent": [
+      "recipe"
+    ],
+    "ingredient_intent": [
+      "ingredient"
+    ],
+    "aliases": {
+      "tomatoes": "tomato",
+      "recipes": "recipe",
+      "ingredients": "ingredient",
+      "onions": "onion",
+      "peppers": "pepper",
+      "mushrooms": "mushroom",
+      "olives": "olive",
+      "mixing": "mix",
+      "mixed": "mix",
+      "kneading": "knead",
+      "kneaded": "knead",
+      "baking": "bake",
+      "baked": "bake",
+      "stirring": "stir",
+      "stirred": "stir",
+      "combining": "combine",
+      "combined": "combine",
+      "rolling": "roll",
+      "rolled": "roll",
+      "preheating": "preheat",
+      "preheated": "preheat",
+      "simmering": "simmer",
+      "simmered": "simmer",
+      "adding": "add",
+      "added": "add",
+      "cheeese": "cheese",
+      "chese": "cheese",
+      "mozzarela": "mozzarella",
+      "recpie": "recipe",
+      "recipie": "recipe",
+      "ingrediants": "ingredient",
+      "ingredents": "ingredient",
+      "tomatos": "tomato"
+    }
+  },
+  "ambiguous_substitutions": {
+    "!": [
+      "i",
+      "l"
+    ],
+    "1": [
+      "i",
+      "l"
+    ],
+    "|": [
+      "i",
+      "l"
+    ]
+  }
+}

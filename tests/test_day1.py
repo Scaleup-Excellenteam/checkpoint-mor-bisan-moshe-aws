@@ -1,6 +1,7 @@
 import asyncio
 import json
 import os
+import re
 from pathlib import Path
 import socket
 import subprocess
@@ -10,9 +11,10 @@ import urllib.request
 
 import pytest
 import websockets
-import auth
-import database as db
+from chat_system import auth
+from chat_system import database as db
 from client import ChatClient
+from scripts.load_test import stop_process
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -98,8 +100,7 @@ def running_server(tmp_path):
         else: pytest.fail('Server startup timeout')
         yield f'ws://127.0.0.1:{port}/ws'
     finally:
-        proc.terminate()
-        proc.wait(timeout=10)
+        stop_process(proc)
         output.close()
 
 
@@ -158,14 +159,15 @@ def test_real_websocket_flow(running_server):
 
 
 def test_real_cli(running_server):
-    script = '1\ncliuser\nPassword1\n2\ncliuser\nPassword1\n/create CLI Room\n/list\n/history\nhello from CLI\n/history\n/leave CLI Room\n/join CLI Room\n/select CLI Room\n/reconnect\n2\ncliuser\nPassword1\n/select CLI Room\n/history\n/quit\n'
+    script = '1\ncliuser\nPassword1\n2\ncliuser\nPassword1\n/create CLI Room\n/list\n/history\nhello from CLI\npineapple\n/history\n/leave CLI Room\n/join CLI Room\n/select CLI Room\n/reconnect\n2\ncliuser\nPassword1\n/select CLI Room\n/history\n/quit\n'
     result = subprocess.run([sys.executable, 'client.py', '--uri', running_server], input=script, text=True, capture_output=True, timeout=30, cwd=ROOT)
     assert result.returncode == 0, result.stderr
     for expected in ('signup: success', 'login: success', 'create_group: success', 'hello from CLI', 'leave_group: success', 'join_group: success', 'select_room: success', 'Reconnected.'):
         assert expected in result.stdout, result.stdout
+    assert 'send_message: success' not in result.stdout
+    assert 'Error: forbidden_term Blocked: forbidden protected term.' in result.stdout
     assert '[CLI Room] cliuser: hello from CLI' in result.stdout
-    assert any('cliuser: hello from CLI' in line and '[CLI Room]' not in line
-               for line in result.stdout.splitlines())
+    assert re.search(r'\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2} cliuser: hello from CLI', result.stdout)
 
 
 def test_selected_room_routing(running_server):
