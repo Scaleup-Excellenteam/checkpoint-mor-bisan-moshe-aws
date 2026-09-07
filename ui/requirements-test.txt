@@ -1,0 +1,2 @@
+# Optional browser test tooling; not needed to run the UI.
+playwright>=1.62,<2

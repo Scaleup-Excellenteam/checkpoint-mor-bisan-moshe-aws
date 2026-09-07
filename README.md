@@ -1,7 +1,8 @@
 # CheckPoint Bootcamp: Secure Chat System
 
-A WebSocket CLI chat system with SQLite persistence, authentication, public rooms,
-selected-room live delivery, and server-side content and URL checks. Only an
+A WebSocket chat system with browser and CLI interfaces, SQLite persistence,
+authentication, public rooms, selected-room live delivery, and server-side content
+and URL checks. Only an
 allowed message is stored or broadcast. History and live messages show the stored
 normalized sender username.
 
@@ -13,6 +14,7 @@ chat_system/                  # Authentication, database, security modules/contr
 config/                       # schema.sql and dlp_rules.json
 scripts/                      # Offline smoke and load tools
 tests/                        # Unit, integration and configuration tests
+ui/                           # Static browser UI, protocol client and UI tests
 docs/
   LOAD_TEST_REPORT.md
   setup/                      # Ollama and URL setup notes
@@ -74,6 +76,70 @@ remote clients need neither its port nor the API key. `/health` shares the chat
 port and returns `ok: true, status: healthy`; it is a server liveness check, not
 proof that either security service is available. Host/port and client URI are CLI
 arguments with the defaults shown above, not environment variables.
+
+## Browser UI
+
+Start the existing server with the command above. In a second terminal, serve only
+the UI directory (never the repository root, which contains the private `.env`):
+
+```powershell
+./.venv/Scripts/python.exe ui/serve.py
+```
+
+Open `http://127.0.0.1:8080` in a current Chrome, Edge, Firefox, or Safari browser.
+No npm install or build is needed. The launcher fixes JavaScript MIME types on
+Windows and accepts optional `--host` and `--port` arguments. Enter the server
+WebSocket address, such as
+`ws://127.0.0.1:8000/ws`, and click **Connect**. For another server computer, use
+its reachable LAN address. The UI itself needs neither Ollama nor a VirusTotal key.
+For an HTTPS-hosted UI, use a reachable `wss://` server; browsers block insecure
+WebSocket connections from HTTPS pages. The included local HTTP launcher is for
+development; deploy static assets and transport security appropriately for hosting.
+
+1. **Sign up**, then **Log in**. Usernames are normalized; passwords are masked,
+   never trimmed, and cleared after submission. Validation feedback does not
+   replace the server's authentication or security checks.
+2. Create a room or **Join** a public room. To return to an existing membership,
+   choose **Select**. Create/join/select selects that room and loads its history.
+   Only the selected room receives live messages. The server's room list contains
+   no membership flags, so the UI labels only membership observed this session.
+3. Send a message. **Checking message…** remains visible during server security
+   checks; incoming messages and draft editing continue. Commands are serialized
+   while a request is pending, matching the server's per-connection processing.
+   Only actual `room_message` events enter the conversation; rejected text stays
+   in the composer for editing. History and events are deduplicated by `message_id`.
+4. **Leave room** ends membership. **Reconnect** or **Disconnect** clears the local
+   session and displayed history. Log in and select a room again to recover history.
+   No passwords, session tokens, or chat data are saved to browser storage.
+
+The UI sends only the existing JSON WebSocket operations to `/ws`; it adds no
+backend routes or changes. Sender names come from server responses and events.
+Message content is rendered as plain text, including HTML and links. A disconnect
+or 180-second request timeout can leave delivery unknown: reconnect and check
+history before retrying. Messages are never automatically resent. History is
+unpaginated, as in the existing protocol. A membership change from another session
+is learned on the next server operation; the protocol has no membership-change event.
+
+### UI verification
+
+Node.js 22+ runs the dependency-free transport tests. Python integration tests run
+that same browser transport against the real server, SQLite, and real security
+adapters with controlled external model/provider responses. Browser tests use
+optional Playwright tooling; neither Node nor Playwright is needed to use the UI.
+
+```powershell
+node --test ui/tests/protocol.test.mjs
+./.venv/Scripts/python.exe -m pip install -r ui/requirements-test.txt
+./.venv/Scripts/python.exe -m playwright install chromium
+$env:PYTHON_DOTENV_DISABLED = "1"
+./.venv/Scripts/python.exe -m pytest -q tests/test_ui_protocol.py tests/test_ui_browser.py
+```
+
+The browser test exercises two users at desktop/mobile widths, signup without
+automatic login, room lifecycle, history/live deduplication, safe text rendering,
+incoming messages during delayed security rejection, preserved drafts, and
+reconnect. Screenshots go to pytest's temporary test directory. External
+Ollama/VirusTotal availability and real-model accuracy remain separate server-side checks.
 
 ## Environment configuration
 
