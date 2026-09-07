@@ -2,9 +2,8 @@
 
 A WebSocket chat system with browser and CLI interfaces, SQLite persistence,
 authentication, public rooms, selected-room live delivery, and server-side content
-and URL checks. Only an
-allowed message is stored or broadcast. History and live messages show the stored
-normalized sender username.
+and URL checks. Only an allowed message is stored or broadcast. History and live
+messages show the stored normalized sender username.
 
 ## Repository layout
 
@@ -23,21 +22,23 @@ README.md, COMMON_SECURITY_DECISIONS.md
 requirements.txt, .env.example, .gitignore
 ```
 
-The root retains the authoritative security decisions and launch commands.
-Implementation imports use `chat_system`; no duplicate modules or wrappers are
-kept. Rules and schema resolve from the project path regardless of working
-directory. `.env` and the default `chat.db` remain in the project root; the default
+Application modules live in `chat_system`. Rules and schema resolve from the
+project path regardless of working directory. `.env` and the default `chat.db`
+remain in the project root; the default
 log and relative path overrides still resolve against the working directory.
 
 See the [local model setup](docs/setup/LOCAL_LLM_SETUP.md),
 [URL setup notes](docs/setup/URL_SECURITY_NOTES.md),
-[load report](docs/LOAD_TEST_REPORT.md), and
-[historical reference patch](docs/reference/URL_SECURITY_INTEGRATION.patch).
+[load report](docs/LOAD_TEST_REPORT.md). Component notes may retain historical
+examples; the setup and integrated behavior described here apply to this product.
 All executable commands below run from the repository root.
 
 ## Install and run
 
-Python 3.12 is tested (Python 3.10+ required). From the repository in PowerShell:
+Python 3.12 is tested (Python 3.10+ required). Dependencies in `requirements.txt`
+include FastAPI/Uvicorn, websockets, bcrypt, HTTPX, python-dotenv and pytest. SQLite
+is included with Python. Node.js and Playwright are only needed for UI tests.
+From the repository in PowerShell:
 
 ```powershell
 python -m venv .venv
@@ -53,7 +54,7 @@ initialization command is needed. `CHAT_DATABASE` and `CHAT_LOG` override `chat.
 and `chat.log`. Run one server process/worker because sessions, room presence,
 security windows and reputation caches are in memory.
 
-Open `http://127.0.0.1:8000/` in two browser windows, or use the CLI as an
+Open `http://localhost:8000/` in two browser windows, or use the CLI as an
 alternative in two or more separate terminals:
 
 ```powershell
@@ -80,7 +81,7 @@ arguments with the defaults shown above, not environment variables.
 
 ## Browser UI
 
-Start the server once with the command above, then open `http://127.0.0.1:8000/`.
+Start the server once with the command above, then open `http://localhost:8000/`.
 On another computer on the same network, open `http://SERVER_LAN_IP:8000/`.
 No frontend server, npm install, or build is needed. FastAPI serves `/` and
 `/static/*` from the project UI directory, alongside `/ws` and `/health`.
@@ -144,6 +145,7 @@ node --test ui/tests/protocol.test.mjs ui/tests/health.test.mjs
 ./.venv/Scripts/python.exe -m playwright install chromium
 $env:PYTHON_DOTENV_DISABLED = "1"
 ./.venv/Scripts/python.exe -m pytest -q tests/test_ui_protocol.py tests/test_ui_browser.py tests/test_ui_serving.py
+Remove-Item Env:PYTHON_DOTENV_DISABLED
 ```
 
 The browser test exercises two users at desktop/mobile widths, signup without
@@ -193,9 +195,15 @@ prevent startup. The template contains only safe defaults and a blank API key.
 ## Using rooms and the CLI
 
 Sign up (menu 1), then log in (menu 2). Usernames are trimmed/lowercased, 3-20
-letters a-z, digits or underscores. Passwords are 8-32 letters, digits or
-`@#$%^&*`, with at least two categories, and stored with salted bcrypt hashes.
-Passwords never enter the content-security modules.
+letters a-z, digits or underscores. Passwords are 8-32 characters, allowing
+uppercase and lowercase English letters, digits, and only `@#$%^&*` as special
+characters. At least two of three categories are required: letters (both cases
+count together), digits, and allowed special characters. Letters plus digits
+are sufficient; a special character is not mandatory. Passwords are not trimmed,
+are masked during entry, and are stored only as salted bcrypt hashes. They never
+enter the content-security modules. Login failures return the same
+`invalid_credentials` error for an unknown username or incorrect password;
+successful login creates an in-memory session.
 
 Client A: `/create General`; client B: `/join General`; then type a message.
 Commands: `/list`, `/create NAME`, `/join NAME`, `/select NAME`, `/leave NAME`,
@@ -216,8 +224,8 @@ For message requests:
 
 1. Validate the session, message and room fields, active membership and selection.
 2. Run the policy in a worker thread outside the server's shared async lock.
-3. Check deterministic DLP; call the local classifier only for scores 30-99;
-   then check every distinct supported URL from the original text.
+3. Check deterministic DLP; suspicious context receives local classifier review.
+   If content checks allow, check every distinct supported URL from the original text.
 4. If allowed, reacquire the server lock and revalidate session, membership and
    selection before saving. Broadcast only to eligible connections selecting that
    room. If blocked, return a correlated structured rejection without persistence
@@ -249,23 +257,17 @@ consumers can be disconnected.
 
 ## DLP and local-model setup
 
-Only **pineapple** and its configured aliases/typos/evasions in `config/dlp_rules.json`
-receive deterministic score 100 and immediate blocking. Normal pizza discussion
-is allowed. Recipe clues accumulate across the window: pizza/dough/sauce +10;
-distinct ingredients +5 each (cap 20); quantity/unit +20; preparation +15;
-time/temperature +15; sequence markers +10; at least three categories in one
-attempt +10; recipe/recipes intent +10; ingredient/ingredients intent +5.
-Canonical aliases count once (tomato/tomatoes is one ingredient). Approved
-grammatical forms, explicit typos, substitutions and selected homoglyphs are
-recognized without general soft-word fuzzy matching. Quantity units also include
-ounces, pounds, pinches and cloves; written one through ten, half and quarter are
-recognized. Recipe scores cap at 99. Scores 0-29 skip the model; 30-99 request
-review. Category signals accumulate once across the valid window, not once per
-message; repeated words do not raise the score. The LLM judges whether the current
-message discloses or materially continues a pizza recipe. Ordinary discussion,
-recipe-existence mentions, unrelated chocolate-cake recipes and neutral follow-ups
-should be allowed; this prompt behavior still requires real-model evaluation.
-These heuristics are not a guarantee of detection or zero false positives.
+The deterministic policy immediately blocks the configured protected concept in
+messages and new account/room names. Other recipe-related signals remain soft
+signals: they accumulate across the recent user/room window and can trigger
+local-model review rather than an immediate deterministic block. Low-risk
+attempts do not call the model; hard blocks also skip it.
+
+The LLM judges whether the current message discloses or materially continues a
+pizza recipe using recent attempts as context. Ordinary pizza discussion,
+recipe-existence mentions, neutral follow-ups and unrelated recipes such as
+chocolate cake are intended to be allowed. This classification quality still
+requires real-model evaluation; heuristics and models can make mistakes.
 
 Install Ollama manually using [the official download](https://ollama.com/download).
 In a separate terminal, configure its [local-only mode](https://docs.ollama.com/faq#how-do-i-disable-ollama-cloud-features) and start the runtime:
@@ -286,7 +288,7 @@ The application never downloads a model. If an Ollama tray process already owns
 the port, configure/restart that process or stop it before the separate runtime.
 The environment table above lists the adapter settings.
 
-The teammate's adapter accepts only loopback HTTP(S), disables redirects/proxies,
+The local-model adapter accepts only loopback HTTP(S), disables redirects/proxies,
 requires strict JSON allow/block output, and preserves its configured socket
 timeout. CPU/cold starts can exceed it. Configure the Ollama process with cloud
 features disabled; localhost alone does not establish how a runtime executes a
@@ -295,7 +297,7 @@ model. See `docs/setup/LOCAL_LLM_SETUP.md` for manual adapter checks and limitat
 Missing/unavailable models, timeout or malformed/unresolved output fail closed.
 With no model installed the chat still starts: ordinary low-score text works,
 but messages needing review are rejected. Real-model accuracy and timing require
-manual team verification; automated tests use controlled responses.
+manual verification; automated tests use controlled responses.
 
 ## URL reputation and secrets
 
@@ -311,21 +313,15 @@ normalized and deduplicated. Every extracted URL is checked. Submitted URLs are
 **never visited**: the adapter requests only existing hostname reports from
 VirusTotal. Its separate in-memory LRU cache holds safe, malicious and unknown
 verdicts for 24 hours, keyed by hostname. Different paths share that hostname
-verdict. Failures are not cached. Two malicious detections block; one detection,
-suspicious, unknown/stale results, and unsupported hosts return review, which the
-final policy conservatively blocks. A known malicious URL takes precedence over
-other URL failures; any failure otherwise prevents delivery.
+verdict. Failures are not cached. Malicious results block delivery; uncertain,
+stale or unsupported results also prevent delivery until safety can be established.
+A known malicious result takes precedence over other URL failures.
 
-`docs/setup/URL_SECURITY_NOTES.md` lists the module's other settings. Its legacy
-`evaluate_message()` helper and URL limit are not used by the integrated policy;
-the policy checks every URL via `check()`. `docs/reference/URL_SECURITY_INTEGRATION.patch` is a
-historical reference targeting an old API: **do not apply it**. Its preserved
-unified-diff context-marker spaces produce known Git whitespace warnings; source
-and documentation whitespace checks exclude this reference artifact.
-
-This is hostname reputation, not page-content scanning or proof of safety. Bare
-domains without a supported prefix are not checked in the integrated flow.
-Provider quota/rate limits, missing reports or connectivity can reject URL messages.
+The integrated policy checks every extracted URL; the legacy helper's URL-count
+limit is not used. See [URL setup notes](docs/setup/URL_SECURITY_NOTES.md) for
+component configuration. Reputation checks assess hostname reports, not page
+contents, and do not prove a link is safe. Provider quota/rate limits, missing
+reports or connectivity problems can reject URL messages.
 
 ## Protocol, errors and logs
 
@@ -345,7 +341,7 @@ and reason_code. The CLI displays a readable explanation alongside the code:
 
 | Code | Meaning |
 | --- | --- |
-| `forbidden_term` | Protected pineapple term/evasion in a message or new name |
+| `forbidden_term` | Protected content in a message or new name |
 | `recipe_blocked` | Local classifier identified recipe disclosure |
 | `security_check_unavailable` | Model failure, timeout or invalid/unresolved result |
 | `malicious_url` | Blocking URL reputation |
@@ -361,8 +357,8 @@ Message security logs use a shared attempt_id across stages: attempt user/room,
 window size/age, current and full-window deterministic scores/category counts,
 LLM action/score/duration/failure, URL count, each URL cache/API/local source and
 status/duration/failure, and final action/score/reason. A score is not calibrated
-confidence; adapter unavailability can produce 99. Skipped URL stages are explicitly
-labelled not_evaluated, not confused with no URL. Names retain deterministic
+confidence. Skipped URL stages are explicitly labelled not_evaluated, not
+confused with no URL. Names retain deterministic
 operation logs. Connection and message IDs are also logged. They exclude passwords, tokens, API keys,
 model output and full blocked content. Unexpected failures return `internal_error`
 and a generic log entry, never exception text that could contain secrets.
@@ -377,7 +373,7 @@ $env:PYTHON_DOTENV_DISABLED = "1"
 ./.venv/Scripts/python.exe -m pytest -q tests/test_dlp.py tests/test_security_policy.py tests/test_local_llm.py tests/test_url_security.py
 ./.venv/Scripts/python.exe -m pytest -q
 ./.venv/Scripts/python.exe -m pytest -q tests/test_security_integration.py
-./.venv/Scripts/python.exe -m compileall -q chat_system server.py client.py cli.py tests scripts
+./.venv/Scripts/python.exe -m compileall -q chat_system server.py client.py cli.py tests scripts ui
 ./.venv/Scripts/python.exe scripts/security_smoke.py
 ./.venv/Scripts/python.exe scripts/load_test.py --clients 3 --messages 2
 ./.venv/Scripts/python.exe scripts/load_test.py --clients 8 --messages 10
@@ -391,45 +387,28 @@ local HTTP model/provider fixtures. It does not use a real model or external API
 Windows subprocess tests stop only their owned process tree, including the venv
 launcher child; a restrictive sandbox may need permission for this cleanup.
 
-For a manual demo, sign up/login two clients, create/join General, exchange ordinary
-pizza chat, then try `pineapple` and confirm rejection and absence from `/history`.
-Try a forbidden username and room name. Send recipe clues over several messages
-(e.g. `pizza`, then `200 g flour`, then preparation instructions) to trigger review.
-With a configured model, inspect its safe decision; without one, expect
-`security_check_unavailable`. Use the offline smoke for repeatable safe/malicious
-URL demonstrations without opening URLs or consuming API quota. Select another
-room on a third client, verify isolation, leave/rejoin and reconnect, and check
-`/health` during pending checks. See `docs/LOAD_TEST_REPORT.md` for measured results.
+For a manual demo, sign up/log in two browser or CLI clients, create/join General,
+and exchange ordinary pizza chat. Use the offline smoke for repeatable content
+and safe/malicious URL rejections without opening submitted URLs or consuming API
+quota. Confirm rejected messages never appear in history. Select another room,
+verify isolation, leave/rejoin and reconnect, and check `/health` during pending
+checks. See [load results](docs/LOAD_TEST_REPORT.md) for local measurements.
 
 Remaining limits: in-memory sessions without expiry, unpaginated history,
-unencrypted lab `ws://`, manually configured real services, bounded per-window
+unencrypted HTTP/WS, manually configured real services, bounded per-window
 attempt count but unbounded number of windows, and heuristic/model false positives
-and false negatives. No production capacity or cross-laptop validation is claimed.
+and false negatives. Local load results are not production-capacity claims.
 
-For real-service verification later, configure `.env`, start Ollama as above and
-run these commands from the repository on the server computer. The second command
-makes real Ollama and VirusTotal requests, uses synthetic text, and prints only
-safe decision fields. A URL verdict may legitimately be review/block; unavailable
-means configuration/connectivity/quota still needs attention.
+For real-service verification, configure `.env` on the server computer, start
+Ollama and pull the configured model as above, then run `ollama list` to confirm
+it is installed. Follow the [local-model checks](docs/setup/LOCAL_LLM_SETUP.md)
+and [URL setup notes](docs/setup/URL_SECURITY_NOTES.md) with synthetic test data.
+Real provider checks consume API quota. Test the complete UI flow using ordinary
+conversation, pizza-recipe disclosure, unrelated recipes, and controlled service
+unavailability; verify expected allow/block outcomes and absence of rejected
+messages from history. Use benign URLs for real reputation checks and mocked
+responses for malicious cases; never visit a submitted URL to test reputation.
 
-```powershell
-ollama list
-@'
-import server  # Loads the root .env before the real adapters.
-from chat_system.local_llm import OllamaRecipeClassifier
-from chat_system.url_security import VirusTotalURLReputationChecker
-llm = OllamaRecipeClassifier().classify("Mix 200 g flour and bake for 20 minutes.", [])
-print(llm.action, llm.reason_code, llm.risk_score)
-checker = VirusTotalURLReputationChecker()
-try:
-    result = checker.check("https://www.python.org")
-    print(result.action, result.reason_code, result.risk_score)
-finally:
-    checker.close()
-'@ | ./.venv/Scripts/python.exe -
-./.venv/Scripts/python.exe server.py --host 0.0.0.0 --port 8000
-```
-
-Then use the two CLI terminals and demo above to verify the full message flow.
-These real-service commands require manual team configuration and have not been
-verified against a real model or provider by the automated/offline test runs.
+**Still requiring manual verification:** real Ollama classification quality and
+timeouts, real VirusTotal access/quota, and access from another computer through
+the LAN/firewall. Automated/offline results do not verify these services or TLS.
