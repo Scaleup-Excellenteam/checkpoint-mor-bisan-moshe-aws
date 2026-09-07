@@ -1,10 +1,11 @@
 import sqlite3
+import os
 from pathlib import Path
 from typing import Any
 
 
 BASE_DIR = Path(__file__).resolve().parent
-DATABASE_PATH = BASE_DIR / "chat.db"
+DATABASE_PATH = Path(os.environ.get("CHAT_DATABASE", str(BASE_DIR / "chat.db")))
 SCHEMA_PATH = BASE_DIR / "schema.sql"
 
 
@@ -150,6 +151,7 @@ def join_group(user_id: int, room_name: str) -> dict[str, Any]:
                     AND user_id = ?"""
 
     try:
+        conn.execute("BEGIN IMMEDIATE")
         cursor = conn.execute(sql_group, (room_name,))
         group = cursor.fetchone()
 
@@ -214,6 +216,7 @@ def leave_group(user_id: int, room_name: str) -> dict[str, Any]:
                    AND left_at IS NULL"""
 
     try:
+        conn.execute("BEGIN IMMEDIATE")
         cursor = conn.execute(sql_group, (room_name,))
         group = cursor.fetchone()
 
@@ -282,6 +285,7 @@ def save_message(room_id: int, sender_id: int, content: str) -> dict[str, Any]:
                      VALUES (?, ?, ?)"""
 
     try:
+        conn.execute("BEGIN IMMEDIATE")
         cursor = conn.execute(
             sql_member,
             (room_id, sender_id),
@@ -344,6 +348,7 @@ def get_room_history(user_id: int, room_id: int) -> list[dict[str, Any]]:
                               messages.message_id"""
 
     try:
+        conn.execute("BEGIN")
         cursor = conn.execute(sql_member, (room_id, user_id))
         membership = cursor.fetchone()
 

@@ -107,7 +107,9 @@ def signup(username: str, password: str) -> dict[str, Any]:
 
     try:
         user_id = create_user(normalized_username, password_hash)
-    except sqlite3.IntegrityError:
+    except sqlite3.IntegrityError as exc:
+        if "UNIQUE constraint failed: users.username" not in str(exc):
+            raise
         return {
             "ok": False,
             "error": "username_taken",
@@ -127,6 +129,8 @@ def login(username: str, password: str) -> dict[str, Any]:
     Return a success result containing token, user_id and username,
     or invalid_credentials.
     """
+    if not validate_password(password):
+        return {"ok": False, "error": "invalid_credentials"}
     normalized_username = normalize_username(username)
     user = get_user_by_username(normalized_username)
 

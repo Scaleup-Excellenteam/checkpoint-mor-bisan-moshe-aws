@@ -1,48 +1,57 @@
+"""Network client with one receive task dispatching responses and events."""
 import asyncio
 import json
+import uuid
 import websockets
+from websockets.exceptions import ConnectionClosed
 
 
-async def chat_client():
-    uri = "ws://127.0.0.1:8000/ws"
-    token = None
+class ChatClient:
+    def __init__(self, uri="ws://127.0.0.1:8000/ws"):
+        self.uri = uri
+        self.token = None
+        self.pending = {}
+        self.events = asyncio.Queue()
 
-    async with websockets.connect(uri) as ws:
-        print("Connected to server")
+    async def connect(self):
+        self.ws = await websockets.connect(self.uri, max_size=None)
+        self.reader = asyncio.create_task(self._receive())
 
-        while True:
-            print("\n1. Signup\n2. Login\n3. Exit")
-            choice = await asyncio.to_thread(input, "Choose an option: ")
-
-            if choice == "3":
-                break
-            if choice not in ("1", "2"):
-                print("Please choose 1, 2, or 3.")
-                continue
-
-            username = (await asyncio.to_thread(input, "Username: ")).strip()
-            password = await asyncio.to_thread(input, "Password: ")
-            action = "signup" if choice == "1" else "login"
-            request = {
-                "action": action,
-                "username": username,
-                "password": password,
-            }
-            await ws.send(json.dumps(request))
-            response = json.loads(await ws.recv())
-
-            if action == "signup":
-                if response["ok"]:
-                    print("Signup successful")
-                    print("Username:", response["username"])
+    async def _receive(self):
+        try:
+            async for raw in self.ws:
+                message = json.loads(raw)
+                if message.get("type") == "event":
+                    await self.events.put(message)
                 else:
-                    print("Signup failed:", response["error"])
-            elif response["ok"]:
-                token = response["token"]
-                print("Logged in as:", response["username"])
-            else:
-                print("Login failed:", response["error"])
+                    future = self.pending.get(message.get("id"))
+                    if future and not future.done():
+                        future.set_result(message)
+        except ConnectionClosed:
+            pass
+        finally:
+            for future in self.pending.values():
+                if not future.done():
+                    future.set_exception(ConnectionError("Disconnected; reconnect and log in."))
+
+    async def request(self, action, **fields):
+        request_id = uuid.uuid4().hex
+        future = asyncio.get_running_loop().create_future()
+        self.pending[request_id] = future
+        try:
+            await self.ws.send(json.dumps({"id": request_id, "action": action, "token": self.token, **fields}))
+            response = await asyncio.wait_for(future, 30)
+            if action == "login" and response["ok"]:
+                self.token = response["token"]
+            return response
+        finally:
+            self.pending.pop(request_id, None)
+
+    async def close(self):
+        await self.ws.close()
+        await self.reader
 
 
 if __name__ == "__main__":
-    asyncio.run(chat_client())
+    from cli import main
+    main()
