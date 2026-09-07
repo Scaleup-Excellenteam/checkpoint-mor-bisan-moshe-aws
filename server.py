@@ -66,7 +66,7 @@ def reasons():
 @app.get("/", include_in_schema=False)
 def web_ui():
     """Browser client speaking the same WebSocket protocol as cli.py."""
-    return FileResponse(STATIC_DIR / "index.html")
+    return FileResponse(STATIC_DIR / "index.html", headers={"Cache-Control": "no-store"})
 
 
 app.mount("/static", StaticFiles(directory=STATIC_DIR, check_dir=False), name="static")
