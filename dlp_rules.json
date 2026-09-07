@@ -1,0 +1,14 @@
+{
+  "configuration_note": "Protected vocabulary awaits team confirmation; populate protected_terms before integration.",
+  "protected_terms": [],
+  "separators": " ._-\t\r\n",
+  "substitutions": {"0":"o", "1":"i", "3":"e", "4":"a", "5":"s", "7":"t", "@":"a", "$":"s", "а":"a", "е":"e", "о":"o", "р":"p", "с":"c", "х":"x", "і":"i", "α":"a", "ο":"o"},
+  "recipe": {
+    "anchors": ["pizza", "dough", "sauce"],
+    "ingredients": ["flour", "water", "yeast", "salt", "sugar", "oil", "tomato", "tomatoes", "cheese", "mozzarella", "basil"],
+    "actions": ["mix", "knead", "bake", "stir", "combine", "roll", "preheat", "simmer", "add"],
+    "sequences": ["first", "then", "next", "finally"],
+    "quantity_pattern": "\\b\\d+(?:[.,/]\\d+)?\\s*(?:g|kg|ml|l|grams?|kilograms?|cups?|tablespoons?|teaspoons?|tbsp|tsp|liters?)\\b",
+    "time_temperature_pattern": "\\b\\d+(?:[.,]\\d+)?\\s*(?:minutes?|mins?|hours?|hrs?|seconds?|degrees?|[cf])\\b|\\b\\d+\\s*°\\s*[cf]\\b"
+  }
+}
