@@ -1,4 +1,4 @@
-# CheckPoint Bootcamp: Day 1 chat
+# CheckPoint Bootcamp: Chat System
 
 A runnable public-group chat with signup/login, persistent SQLite messages,
 room creation/listing, join/leave/rejoin, room selection, history, and live delivery.
