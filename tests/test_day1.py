@@ -109,7 +109,7 @@ async def scenario(uri):
     try:
         await asyncio.gather(*(c.connect() for c in clients))
         assert (await a.request('list_groups'))['error'] == 'unauthenticated'
-        for c, name in zip(clients, ('alice', 'bobby', 'outside')):
+        for c, name in zip(clients, ('  ALIce ', 'bobby', 'outside')):
             assert (await c.request('signup', username=name, password='Password1'))['ok']
             assert (await c.request('login', username=name, password='Password1'))['ok']
         assert (await a.request('create_group', room_name='General'))['ok']
@@ -121,8 +121,14 @@ async def scenario(uri):
         assert (await outsider.request('create_group', room_name='Other'))['ok']
         assert (await outsider.request('send_message', room_name='General', content='bad', user_id=1))['error'] == 'not_active_member'
         assert (await outsider.request('history', room_name='General'))['error'] == 'not_active_member'
-        assert (await a.request('send_message', room_name='General', content='hello'))['ok']
-        for c in (a,b): assert (await asyncio.wait_for(c.events.get(), 2))['content'] == 'hello'
+        sent = await a.request('send_message', room_name='General', content='hello', username='bobby')
+        assert sent['ok'] and sent['username'] == 'alice'
+        for c in (a,b):
+            event = await asyncio.wait_for(c.events.get(), 2)
+            assert event['content'] == 'hello' and event['username'] == 'alice'
+            assert not {'password_hash', 'token'} & event.keys()
+        history = (await b.request('history', room_name='General'))['messages']
+        assert history[0]['username'] == 'alice' and history[0]['content'] == 'hello'
         with pytest.raises(asyncio.TimeoutError): await asyncio.wait_for(outsider.events.get(), .2)
         assert (await b.request('send_message', room_name='General', content='reply'))['ok']
         for c in (a,b): assert (await asyncio.wait_for(c.events.get(), 2))['content'] == 'reply'
@@ -157,3 +163,6 @@ def test_real_cli(running_server):
     assert result.returncode == 0, result.stderr
     for expected in ('signup: success', 'login: success', 'create_group: success', 'hello from CLI', 'leave_group: success', 'join_group: success', 'select_room: success', 'Reconnected.'):
         assert expected in result.stdout, result.stdout
+    assert '[CLI Room] cliuser: hello from CLI' in result.stdout
+    assert any('cliuser: hello from CLI' in line and '[CLI Room]' not in line
+               for line in result.stdout.splitlines())

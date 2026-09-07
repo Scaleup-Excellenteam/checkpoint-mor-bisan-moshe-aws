@@ -10,7 +10,7 @@ from client import ChatClient
 async def display_events(client):
     while True:
         event = await client.events.get()
-        print(f"\n[{event['room_name']}] user {event['sender_id']}: {event['content']}", flush=True)
+        print(f"\n[{event['room_name']}] {event['username']}: {event['content']}", flush=True)
 
 
 async def chat_client(uri):
