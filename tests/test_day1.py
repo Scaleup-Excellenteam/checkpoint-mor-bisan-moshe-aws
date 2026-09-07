@@ -166,3 +166,84 @@ def test_real_cli(running_server):
     assert '[CLI Room] cliuser: hello from CLI' in result.stdout
     assert any('cliuser: hello from CLI' in line and '[CLI Room]' not in line
                for line in result.stdout.splitlines())
+
+
+def test_selected_room_routing(running_server):
+    async def check():
+        mor, bisan, other_mor = [ChatClient(running_server) for _ in range(3)]
+        clients = (mor, bisan, other_mor)
+
+        async def receive(client, content):
+            event = await asyncio.wait_for(client.events.get(), 2)
+            assert event['content'] == content and event['username'] == 'bisan'
+
+        async def silent(client):
+            with pytest.raises(asyncio.TimeoutError):
+                await asyncio.wait_for(client.events.get(), .2)
+
+        async def send(content):
+            result = await bisan.request('send_message', room_name='room_b', content=content, username='mor')
+            assert result['ok'] and result['username'] == 'bisan'
+            await receive(bisan, content)
+
+        try:
+            await asyncio.gather(*(c.connect() for c in clients))
+            for client, name in ((mor, ' Mor '), (bisan, 'BISAN')):
+                assert (await client.request('signup', username=name, password='Password1'))['ok']
+                assert (await client.request('login', username=name, password='Password1'))['ok']
+            assert (await mor.request('create_group', room_name='room_a'))['ok']
+            assert (await bisan.request('create_group', room_name='room_b'))['ok']
+            assert (await mor.request('join_group', room_name='room_b'))['ok']
+            await send('both selected')
+            await receive(mor, 'both selected')
+            await silent(other_mor)  # Unauthenticated connections receive nothing.
+
+            assert (await mor.request('select_room', room_name='room_a'))['ok']
+            assert (await other_mor.request('login', username='mor', password='Password1'))['ok']
+            assert (await other_mor.request('select_room', room_name='room_b'))['ok']
+            await send('missed while away')
+            await receive(other_mor, 'missed while away')
+            await silent(mor)  # Selection is per connection, not per user.
+            history = (await mor.request('history', room_name='room_b'))['messages']
+            assert history[-1]['content'] == 'missed while away'
+            assert history[-1]['username'] == 'bisan'
+            await send('history does not select')
+            await receive(other_mor, 'history does not select')
+            await silent(mor)
+
+            assert (await mor.request('select_room', room_name='room_b'))['ok']
+            await send('selected again')
+            await receive(mor, 'selected again')
+            await receive(other_mor, 'selected again')
+            assert (await mor.request('leave_group', room_name='room_b'))['ok']
+            assert (await mor.request('select_room', room_name='room_b'))['error'] == 'not_active_member'
+            await send('after leave')
+            await silent(mor)
+            await silent(other_mor)
+            # Rejoining elsewhere must not revive a cleared connection selection.
+            assert (await other_mor.request('join_group', room_name='room_b'))['ok']
+            await send('rejoined elsewhere')
+            await receive(other_mor, 'rejoined elsewhere')
+            await silent(mor)
+            assert (await mor.request('select_room', room_name='room_a'))['ok']
+            assert (await mor.request('select_room', room_name='room_b'))['ok']
+            # Leaving a different room preserves the selected room.
+            assert (await mor.request('leave_group', room_name='room_a'))['ok']
+            await send('other room left')
+            await receive(mor, 'other room left')
+            await receive(other_mor, 'other room left')
+
+            await mor.close()
+            await mor.connect()
+            assert (await mor.request('login', username='mor', password='Password1'))['ok']
+            await send('before reselect')
+            await receive(other_mor, 'before reselect')
+            await silent(mor)
+            assert (await mor.request('select_room', room_name='room_b'))['ok']
+            await send('after reconnect')
+            await receive(mor, 'after reconnect')
+            await receive(other_mor, 'after reconnect')
+        finally:
+            await asyncio.gather(*(c.close() for c in clients))
+
+    asyncio.run(check())
