@@ -158,6 +158,22 @@ def test_extraction_failure_and_invalid_verdict():
 def test_production_hard_match_never_calls_llm_or_provider():
     llm, urls = Classifier(), URLs()
     policy = SecurityPolicy(RuleDLPChecker(), llm, urls, urls)
-    result = policy.evaluate('p!zz@ https://example.test', MessageSecurityContext(1, 1))
+    result = policy.evaluate('p!ne@pple https://example.test', MessageSecurityContext(1, 1))
     assert result.reason_code == 'forbidden_term' and result.risk_score == 100
     assert llm.calls == [] and urls.original == [] and urls.checked == []
+
+
+def test_pizza_chat_vs_recipe_window():
+    llm, urls = Classifier(), URLs()
+    policy = SecurityPolicy(RuleDLPChecker(), llm, urls, urls)
+    context = MessageSecurityContext(7, 3)
+    for text in ('I love pizza', 'tomato and cheese', 'great sauce'):
+        result = policy.evaluate(text, context)
+        assert result.action == 'allow' and result.risk_score < 30
+    assert llm.calls == []
+    result = policy.evaluate('then add 200 g flour and bake for 20 minutes', context)
+    assert 30 <= result.risk_score <= 99
+    assert llm.calls == [('then add 200 g flour and bake for 20 minutes',
+                          ('I love pizza', 'tomato and cheese', 'great sauce'))]
+    # A high recipe score is reviewed, not deterministically blocked.
+    assert result.action == 'allow'

@@ -71,17 +71,17 @@ def test_missing_vocabulary_fails_explicitly(tmp_path):
         RuleDLPChecker(path)
 
 
-@pytest.mark.parametrize('text', ['pizza', 'piza', 'pizaz', 'pizzeria', 'pizzaiolo', 'calzone',
-    'P!ZZ@', 'p1zz@', 'p|zza', 'ca!zone', 'ca1zone', 'ca|zone', 'pіzzа', 'pιzzα',
-    'pіzzеrіа', 'p\u200bi\u200bz\u200bz\u200ba', 'p . i _ z - z a',
-    'ｐｉｚｚａ', 'pizzaiuoli', 'calzoni'])
+@pytest.mark.parametrize('text', ['pineapple', 'PINEAPPLE', 'pineapples', 'ananas', 'ananás', 'piña', 'pina', 'אננס',
+    'pinapple', 'pineaple', 'pineappel', 'p!ne@pple', 'pineapp!e', 'p1neapp1e',
+    'pіnеаpple', 'p\u200bineapple', 'p . i _ n - e a p p l e', 'ｐｉｎｅａｐｐｌｅ'])
 def test_production_vocabulary_and_evasions(text):
     result = RuleDLPChecker().check('message', text)
     assert result.action == 'block' and result.risk_score == 100
 
 
 @pytest.mark.parametrize('text', ['add the values', 'the weather', 'piazza', 'canzone',
-    'Margherita', 'marinara', 'flour', 'sauce', 'salt', 'hello!', 'calendar', 'pizzicato'])
+    'Margherita', 'marinara', 'flour', 'sauce', 'salt', 'hello!', 'calendar', 'pizzicato',
+    'pizza', 'pizzeria', 'pizzaiolo', 'calzone', 'apple', 'pine tree'])
 def test_production_false_positives(text):
     assert RuleDLPChecker().check('message', text).action == 'allow'
 
