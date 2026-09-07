@@ -5,6 +5,12 @@ import logging
 import os
 import sqlite3
 from contextlib import asynccontextmanager
+from pathlib import Path
+
+from dotenv import load_dotenv
+
+# Load before auth/database and URL imports read configuration. OS values win.
+load_dotenv(Path(__file__).resolve().parent / ".env", override=False)
 
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 import auth

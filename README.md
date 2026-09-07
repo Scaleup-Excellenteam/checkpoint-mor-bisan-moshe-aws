@@ -12,6 +12,8 @@ Python 3.12 is tested (Python 3.10+ required). From the repository in PowerShell
 ```powershell
 python -m venv .venv
 ./.venv/Scripts/python.exe -m pip install -r requirements.txt
+if (-not (Test-Path .env)) { Copy-Item .env.example .env }
+notepad .env
 ./.venv/Scripts/python.exe server.py --host 0.0.0.0 --port 8000
 ```
 
@@ -29,6 +31,61 @@ In two or more separate terminals:
 
 For another laptop, use the server's LAN IP and allow inbound port 8000. Health is
 `http://127.0.0.1:8000/health`. Local tests do not prove LAN/firewall connectivity.
+
+For example, on each remote laptop (replace the example IP with the server IP):
+
+```powershell
+./.venv/Scripts/python.exe client.py --uri ws://192.168.1.50:8000/ws
+Invoke-RestMethod http://192.168.1.50:8000/health
+```
+
+Use the same LAN or a reachable private network. Allow inbound TCP 8000 for the
+server on the appropriate private firewall profile; do not disable the firewall.
+Only the chat server needs outbound HTTPS to VirusTotal. Keep Ollama on loopback;
+remote clients need neither its port nor the API key. `/health` shares the chat
+port and returns `ok: true, status: healthy`; it is a server liveness check, not
+proof that either security service is available. Host/port and client URI are CLI
+arguments with the defaults shown above, not environment variables.
+
+## Environment configuration
+
+The server loads `.env` beside `server.py` before importing database and URL
+configuration, for both `python server.py` and `uvicorn server:app` startup.
+This lookup does not depend on the terminal directory. Existing OS variables,
+including empty values, take precedence (`override=False`). Restart after edits.
+The file is optional: startup works without it, but required security checks fail
+closed when their services are missing. Direct adapter/database imports do not
+automatically load `.env`. Relative database/log overrides use the process working
+directory; use absolute paths if launching elsewhere. Never use blank path values.
+
+| Variable | Required | Default | Purpose |
+| --- | --- | --- | --- |
+| `CHAT_DATABASE` | No | `chat.db` beside `database.py` | SQLite file; initialized at startup |
+| `CHAT_LOG` | No | `chat.log` in working directory | Server log file |
+| `LOCAL_LLM_ENDPOINT` | No | `http://127.0.0.1:11434/api/generate` | Full Ollama URL, including API path; no separate base-URL variable |
+| `LOCAL_LLM_MODEL` | No | `qwen2.5:1.5b` | Installed local model |
+| `LOCAL_LLM_TIMEOUT_SECONDS` | No | `30` | Positive finite socket timeout |
+| `VIRUSTOTAL_API_KEY` | For provider lookups | Unset | Private API credential; blank also fails closed |
+| `VIRUSTOTAL_API_BASE_URL` | No | `https://www.virustotal.com/api/v3/domains` | Keep official endpoint; test override only |
+| `URL_REPUTATION_REQUEST_TIMEOUT_SECONDS` | No | `10` | Provider timeout; no retries |
+| `URL_REPUTATION_CACHE_TTL_SECONDS` | No | `86400` | Agreed 24-hour verdict lifetime |
+| `URL_REPUTATION_CACHE_MAX_SIZE` | No | `512` | Maximum cached hostnames |
+| `URL_REPUTATION_MAX_REPORT_AGE_SECONDS` | No | `604800` | Reports older than seven days become unknown |
+| `URL_REPUTATION_RATE_LIMIT_PER_MINUTE` | No | `4` | Per-process request budget |
+| `URL_REPUTATION_COOLDOWN_SECONDS` | No | `60` | Cooldown after HTTP 429 |
+| `URL_REPUTATION_REVIEW_MALICIOUS_MIN` | No | `1` | Malicious detections requiring review |
+| `URL_REPUTATION_BLOCK_MALICIOUS_MIN` | No | `2` | Malicious detections requiring block |
+| `URL_REPUTATION_SUSPICIOUS_REVIEW_MIN` | No | `1` | Suspicious detections requiring review |
+| `URL_REPUTATION_MAX_URLS_PER_MESSAGE` | No | `5` | Legacy helper only; integrated policy checks all extracted URLs |
+| `PYTHON_DOTENV_DISABLED` | No | Unset | Set `1` in test process to skip loading developer `.env` |
+| `OLLAMA_HOST` | Runtime setup | `127.0.0.1:11434` | Export in Ollama terminal; not configured by chat `.env` |
+| `OLLAMA_NO_CLOUD` | This local-only setup | Set `1` explicitly | Export in Ollama terminal to disable cloud features |
+
+Keep numeric URL settings at the agreed defaults; malformed numeric values can
+prevent startup. The template contains only safe defaults and a blank API key.
+`.env` is ignored; only `.env.example` belongs in Git.
+
+## Using rooms and the CLI
 
 Sign up (menu 1), then log in (menu 2). Usernames are trimmed/lowercased, 3-20
 letters a-z, digits or underscores. Passwords are 8-32 letters, digits or
@@ -93,7 +150,7 @@ attempt +10. Recipe scores cap at 99. Scores 0-29 skip the model; 30-99 request
 review. These heuristics are not a guarantee of detection or zero false positives.
 
 Install Ollama manually using [the official download](https://ollama.com/download).
-In a separate terminal, configure its local-only mode and start the runtime:
+In a separate terminal, configure its [local-only mode](https://docs.ollama.com/faq#how-do-i-disable-ollama-cloud-features) and start the runtime:
 
 ```powershell
 $env:OLLAMA_NO_CLOUD = "1"
@@ -109,13 +166,7 @@ ollama pull qwen2.5:1.5b
 
 The application never downloads a model. If an Ollama tray process already owns
 the port, configure/restart that process or stop it before the separate runtime.
-Set these in the terminal starting the chat server if changing the defaults:
-
-| Variable | Default |
-| --- | --- |
-| `LOCAL_LLM_MODEL` | `qwen2.5:1.5b` |
-| `LOCAL_LLM_ENDPOINT` | `http://127.0.0.1:11434/api/generate` |
-| `LOCAL_LLM_TIMEOUT_SECONDS` | `30` |
+The environment table above lists the adapter settings.
 
 The teammate's adapter accepts only loopback HTTP(S), disables redirects/proxies,
 requires strict JSON allow/block output, and preserves its configured socket
@@ -130,8 +181,10 @@ manual team verification; automated tests use controlled responses.
 
 ## URL reputation and secrets
 
-Set `VIRUSTOTAL_API_KEY` in the server process environment through your shell or
-secret manager. Do not put real keys in source, commands committed to Git, or a
+Create/sign in to a VirusTotal account and obtain your key from its API-key page
+following [VirusTotal's instructions](https://docs.virustotal.com/docs/please-give-me-an-api-key).
+Paste it only into the ignored local `.env` value for `VIRUSTOTAL_API_KEY`, or
+supply it through the server environment/secret manager. Do not put real keys in source, commands committed to Git, or a
 shared terminal transcript. `.env`, logs, SQLite files and virtual environments are
 ignored. No credentials are required for the offline automated tests.
 
@@ -144,17 +197,6 @@ verdict. Failures are not cached. Two malicious detections block; one detection,
 suspicious, unknown/stale results, and unsupported hosts return review, which the
 final policy conservatively blocks. A known malicious URL takes precedence over
 other URL failures; any failure otherwise prevents delivery.
-
-| Variable | Default / purpose |
-| --- | --- |
-| `VIRUSTOTAL_API_KEY` | unset; missing key fails closed for provider lookups |
-| `URL_REPUTATION_REQUEST_TIMEOUT_SECONDS` | 10; no retry |
-| `URL_REPUTATION_CACHE_TTL_SECONDS` | 86400; keep 24 hours for agreed policy |
-| `URL_REPUTATION_CACHE_MAX_SIZE` | 512 hostname verdicts |
-| `URL_REPUTATION_MAX_REPORT_AGE_SECONDS` | 604800 (7 days) |
-| `URL_REPUTATION_RATE_LIMIT_PER_MINUTE` | 4 per process |
-| `URL_REPUTATION_COOLDOWN_SECONDS` | 60 after HTTP 429 |
-| `VIRUSTOTAL_API_BASE_URL` | official domain endpoint; override only for controlled tests |
 
 `URL_SECURITY_NOTES.md` lists the module's other settings. Its legacy
 `evaluate_message()` helper and URL limit are not used by the integrated policy;
@@ -205,12 +247,16 @@ and a generic log entry, never exception text that could contain secrets.
 ## Tests, load and security demo
 
 ```powershell
+$env:PYTHON_DOTENV_DISABLED = "1"
+./.venv/Scripts/python.exe -m pytest -q tests/test_environment.py
+./.venv/Scripts/python.exe -m pytest -q tests/test_dlp.py tests/test_security_policy.py tests/test_local_llm.py tests/test_url_security.py
 ./.venv/Scripts/python.exe -m pytest -q
 ./.venv/Scripts/python.exe -m pytest -q tests/test_security_integration.py
 ./.venv/Scripts/python.exe -m compileall -q auth.py database.py server.py client.py cli.py dlp.py security_policy.py local_llm.py url_security.py security_contracts.py tests scripts
 ./.venv/Scripts/python.exe scripts/security_smoke.py
 ./.venv/Scripts/python.exe scripts/load_test.py --clients 3 --messages 2
 ./.venv/Scripts/python.exe scripts/load_test.py --clients 8 --messages 10
+Remove-Item Env:PYTHON_DOTENV_DISABLED
 ```
 
 Normal pytest includes the small concurrency scenario; the larger load command is
@@ -234,3 +280,31 @@ Remaining limits: in-memory sessions without expiry, unpaginated history,
 unencrypted lab `ws://`, manually configured real services, bounded per-window
 attempt count but unbounded number of windows, and heuristic/model false positives
 and false negatives. No production capacity or cross-laptop validation is claimed.
+
+For real-service verification later, configure `.env`, start Ollama as above and
+run these commands from the repository on the server computer. The second command
+makes real Ollama and VirusTotal requests, uses synthetic text, and prints only
+safe decision fields. A URL verdict may legitimately be review/block; unavailable
+means configuration/connectivity/quota still needs attention.
+
+```powershell
+ollama list
+@'
+import server  # Loads the root .env before the real adapters.
+from local_llm import OllamaRecipeClassifier
+from url_security import VirusTotalURLReputationChecker
+llm = OllamaRecipeClassifier().classify("Mix 200 g flour and bake for 20 minutes.", [])
+print(llm.action, llm.reason_code, llm.risk_score)
+checker = VirusTotalURLReputationChecker()
+try:
+    result = checker.check("https://www.python.org")
+    print(result.action, result.reason_code, result.risk_score)
+finally:
+    checker.close()
+'@ | ./.venv/Scripts/python.exe -
+./.venv/Scripts/python.exe server.py --host 0.0.0.0 --port 8000
+```
+
+Then use the two CLI terminals and demo above to verify the full message flow.
+These real-service commands require manual team configuration and have not been
+verified against a real model or provider by the automated/offline test runs.
