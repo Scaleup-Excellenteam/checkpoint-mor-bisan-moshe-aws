@@ -44,8 +44,11 @@ room automatically. Enter ordinary text to chat; `/history` shows stored message
 `/leave General` stops delivery; `/join General` reactivates membership.
 Create/join another room on a third client to demonstrate isolation.
 `/reconnect` reconnects and prompts for login; `/quit` exits cleanly.
-Events from every room you actively belong to display with a room label; selection
-controls where your outgoing messages and history requests go.
+Live events are delivered only for the room currently selected on that connection,
+and only while you remain an active member. Membership in other rooms stays stored;
+switching rooms does not leave them. Create, join, and select set the current room;
+leaving it clears the selection. Reconnect starts with no selected room.
+Messages missed while viewing another room remain available through `/history`.
 
 ## Architecture and protocol
 

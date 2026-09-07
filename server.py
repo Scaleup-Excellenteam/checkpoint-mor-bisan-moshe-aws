@@ -106,7 +106,7 @@ def enqueue(ws, state, message):
 @app.websocket("/ws")
 async def websocket_endpoint(ws: WebSocket):
     await ws.accept()
-    state = {"user": None, "queue": asyncio.Queue(maxsize=256)}
+    state = {"user": None, "selected_room": None, "queue": asyncio.Queue(maxsize=256)}
     state["writer"] = asyncio.create_task(writer(ws, state["queue"]))
     app.state.clients[ws] = state
     log.info("connection_open peer=%s", ws.client)
@@ -137,12 +137,24 @@ async def websocket_endpoint(ws: WebSocket):
                 async with app.state.operations:
                     result, user = await asyncio.to_thread(execute, request)
                     if user is not None:
+                        if state["user"] != user:
+                            state["selected_room"] = None
                         state["user"] = user
+                    if result["ok"]:
+                        if action in {"create_group", "join_group", "select_room"}:
+                            state["selected_room"] = result["room_id"]
+                        elif action == "leave_group":
+                            # Membership is shared, but selection belongs to each connection.
+                            for recipient in app.state.clients.values():
+                                if recipient["user"] == user and recipient["selected_room"] == result["room_id"]:
+                                    recipient["selected_room"] = None
                     enqueue(ws, state, {"type": "response", "id": request_id, "action": action, **result})
                     if action == "send_message" and result["ok"]:
                         event = {"type": "event", "action": "room_message", "room_name": request["room_name"], **result}
                         for peer, recipient in list(app.state.clients.items()):
-                            if recipient["user"] is not None and await asyncio.to_thread(db.is_active_member, recipient["user"], result["room_id"]):
+                            if (recipient["user"] is not None
+                                    and recipient["selected_room"] == result["room_id"]
+                                    and await asyncio.to_thread(db.is_active_member, recipient["user"], result["room_id"])):
                                 enqueue(peer, recipient, event)
                     log.info("request action=%s user=%s ok=%s error=%s message_id=%s", action, user, result["ok"], result.get("error"), result.get("message_id"))
             except InvalidRequest as exc:

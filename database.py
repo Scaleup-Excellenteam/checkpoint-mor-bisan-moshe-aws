@@ -275,10 +275,11 @@ def save_message(room_id: int, sender_id: int, content: str) -> dict[str, Any]:
     """
     conn = get_connection()
 
-    sql_member = """SELECT 1
+    sql_member = """SELECT users.username
                     FROM room_members
+                    JOIN users ON users.user_id = room_members.user_id
                     WHERE room_id = ?
-                    AND user_id = ?
+                    AND room_members.user_id = ?
                     AND left_at IS NULL"""
 
     sql_message = """INSERT INTO messages (room_id, sender_id, content)
@@ -310,6 +311,7 @@ def save_message(room_id: int, sender_id: int, content: str) -> dict[str, Any]:
             "message_id": message_id,
             "room_id": room_id,
             "sender_id": sender_id,
+            "username": membership["username"],
             "content": content,
         }
     except sqlite3.Error:
