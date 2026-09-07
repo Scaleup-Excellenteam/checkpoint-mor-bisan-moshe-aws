@@ -1,338 +1,196 @@
-# CheckPoint Bootcamp: Secure Chat System
+# TSPO Secret Slice Chat
 
-A WebSocket CLI chat system with SQLite persistence, authentication, public rooms,
-selected-room live delivery, and server-side content and URL checks. Only an
-allowed message is stored or broadcast. History and live messages show the stored
-normalized sender username.
+Real-time chat for the Top-Secret Pizza Lovers Organization: one multithreaded
+WebSocket server, a **Web UI** and a **CLI** client, signup/login with salted
+bcrypt hashes, rooms with per-connection routing, and server-side **DLP** and
+**Anti-Bot** controls that decide before anything is stored or delivered, with
+visible actions and reason codes. Includes tests, load harness, Docker packaging
+and a CI pipeline.
+
+![Web UI: rooms, live chat, security decisions with reason codes, protocol log](docs/images/web-ui.png)
+
+| Deliverable | Where |
+| --- | --- |
+| Run instructions and demo | this README, [docs/DEMO.md](docs/DEMO.md) |
+| Technical documentation | [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) |
+| Design patterns | [docs/DESIGN_PATTERNS.md](docs/DESIGN_PATTERNS.md) |
+| Lessons learned, test → fix → retest | [docs/DEMO.md](docs/DEMO.md) §7-8 |
+| Docker and CI/CD | [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md) |
+| Load tests and report | [docs/LOAD_TEST_REPORT.md](docs/LOAD_TEST_REPORT.md) |
+| Security decisions and ownership | [COMMON_SECURITY_DECISIONS.md](COMMON_SECURITY_DECISIONS.md) |
+| Model / URL service setup | [docs/setup/LOCAL_LLM_SETUP.md](docs/setup/LOCAL_LLM_SETUP.md), [docs/setup/URL_SECURITY_NOTES.md](docs/setup/URL_SECURITY_NOTES.md) |
 
 ## Repository layout
 
 ```text
-server.py, client.py, cli.py   # Stable server and CLI entry points
-chat_system/                  # Authentication, database, security modules/contracts
-config/                       # schema.sql and dlp_rules.json
-scripts/                      # Offline smoke and load tools
-tests/                        # Unit, integration and configuration tests
-docs/
-  LOAD_TEST_REPORT.md
-  setup/                      # Ollama and URL setup notes
-  reference/                  # Historical URL integration patch (do not apply)
-README.md, COMMON_SECURITY_DECISIONS.md
-requirements.txt, .env.example, .gitignore
+server.py                 FastAPI server: REST (/health, /api/reasons, /), WebSocket (/ws)
+static/                   Web UI (index.html, app.js, styles.css), no build step
+client.py, cli.py         Network client library and terminal client
+chat_system/              auth, database, security contracts, dlp, local_llm, url_security,
+                          security_policy, reason_codes
+config/                   schema.sql, dlp_rules.json
+scripts/                  load_test.py, security_smoke.py, demo_services.py
+tests/                    unit, integration, security, environment, concurrency, Web UI tests
+docs/                     architecture, patterns, demo, deployment, load report, setup notes
+Dockerfile, docker-compose.yml, .github/workflows/ci.yml, requirements.txt, .env.example
 ```
 
-The root retains the authoritative security decisions and launch commands.
-Implementation imports use `chat_system`; no duplicate modules or wrappers are
-kept. Rules and schema resolve from the project path regardless of working
-directory. `.env` and the default `chat.db` remain in the project root; the default
-log and relative path overrides still resolve against the working directory.
+## Quick start (server laptop, PowerShell)
 
-See the [local model setup](docs/setup/LOCAL_LLM_SETUP.md),
-[URL setup notes](docs/setup/URL_SECURITY_NOTES.md),
-[load report](docs/LOAD_TEST_REPORT.md), and
-[historical reference patch](docs/reference/URL_SECURITY_INTEGRATION.patch).
-All executable commands below run from the repository root.
-
-## Install and run
-
-Python 3.12 is tested (Python 3.10+ required). From the repository in PowerShell:
+Python 3.10+ (3.12 and 3.13 tested).
 
 ```powershell
 python -m venv .venv
 ./.venv/Scripts/python.exe -m pip install -r requirements.txt
-if (-not (Test-Path .env)) { Copy-Item .env.example .env }
-notepad .env
+if (-not (Test-Path .env)) { Copy-Item .env.example .env }   # optional: add VIRUSTOTAL_API_KEY
 ./.venv/Scripts/python.exe server.py --host 0.0.0.0 --port 8000
 ```
 
-If `python` resolves to the Windows Store stub, use an installed Python executable
-for the first command. Startup initializes `chat.db` from `config/schema.sql`; no separate
-initialization command is needed. `CHAT_DATABASE` and `CHAT_LOG` override `chat.db`
-and `chat.log`. Run one server process/worker because sessions, room presence,
-security windows and reputation caches are in memory.
+Startup creates `chat.db` from `config/schema.sql` and writes `chat.log`. Find the
+laptop's LAN address with `ipconfig` and allow inbound TCP 8000 on the private
+firewall profile. Run one server process: sessions, room selections, security
+windows and reputation caches are in memory.
 
-In two or more separate terminals:
+### Connect clients (other laptops)
 
-```powershell
-./.venv/Scripts/python.exe client.py --uri ws://127.0.0.1:8000/ws
-```
+* **Web UI:** open `http://<server-ip>:8000/` in a browser. Sign up, log in,
+  create/join/open rooms, chat, and watch the Security decisions panel and the
+  protocol log. Disconnect/Reconnect buttons demonstrate recovery.
+* **CLI:** `./.venv/Scripts/python.exe client.py --uri ws://<server-ip>:8000/ws`
+  then menu `1` sign up, `2` log in; commands `/list`, `/create NAME`,
+  `/join NAME`, `/select NAME`, `/leave NAME`, `/history`, `/reconnect`, `/quit`;
+  any other line is a message to the selected room.
+* **REST:** `http://<server-ip>:8000/health` → `{"ok": true, "status": "healthy"}`;
+  `http://<server-ip>:8000/api/reasons` → explanation for every error/reason code.
 
-For another laptop, use the server's LAN IP and allow inbound port 8000. Health is
-`http://127.0.0.1:8000/health`. Local tests do not prove LAN/firewall connectivity.
+Usernames: 3-20 lowercase letters, digits or `_` (input is trimmed and lowercased).
+Passwords: 8-32 characters from letters, digits and `@#$%^&*`, at least two categories.
 
-For example, on each remote laptop (replace the example IP with the server IP):
-
-```powershell
-./.venv/Scripts/python.exe client.py --uri ws://192.168.1.50:8000/ws
-Invoke-RestMethod http://192.168.1.50:8000/health
-```
-
-Use the same LAN or a reachable private network. Allow inbound TCP 8000 for the
-server on the appropriate private firewall profile; do not disable the firewall.
-Only the chat server needs outbound HTTPS to VirusTotal. Keep Ollama on loopback;
-remote clients need neither its port nor the API key. `/health` shares the chat
-port and returns `ok: true, status: healthy`; it is a server liveness check, not
-proof that either security service is available. Host/port and client URI are CLI
-arguments with the defaults shown above, not environment variables.
-
-## Environment configuration
-
-The server loads `.env` beside `server.py` before importing database and URL
-configuration, for both `python server.py` and `uvicorn server:app` startup.
-This lookup does not depend on the terminal directory. Existing OS variables,
-including empty values, take precedence (`override=False`). Restart after edits.
-The file is optional: startup works without it, but required security checks fail
-closed when their services are missing. Direct adapter/database imports do not
-automatically load `.env`. Relative database/log overrides use the process working
-directory; use absolute paths if launching elsewhere. Never use blank path values.
-
-| Variable | Required | Default | Purpose |
-| --- | --- | --- | --- |
-| `CHAT_DATABASE` | No | `chat.db` in the project root | SQLite file; initialized at startup |
-| `CHAT_LOG` | No | `chat.log` in working directory | Server log file |
-| `LOCAL_LLM_ENDPOINT` | No | `http://127.0.0.1:11434/api/generate` | Full Ollama URL, including API path; no separate base-URL variable |
-| `LOCAL_LLM_MODEL` | No | `qwen2.5:1.5b` | Installed local model |
-| `LOCAL_LLM_TIMEOUT_SECONDS` | No | `30` | Positive finite socket timeout |
-| `VIRUSTOTAL_API_KEY` | For provider lookups | Unset | Private API credential; blank also fails closed |
-| `VIRUSTOTAL_API_BASE_URL` | No | `https://www.virustotal.com/api/v3/domains` | Keep official endpoint; test override only |
-| `URL_REPUTATION_REQUEST_TIMEOUT_SECONDS` | No | `10` | Provider timeout; no retries |
-| `URL_REPUTATION_CACHE_TTL_SECONDS` | No | `86400` | Agreed 24-hour verdict lifetime |
-| `URL_REPUTATION_CACHE_MAX_SIZE` | No | `512` | Maximum cached hostnames |
-| `URL_REPUTATION_MAX_REPORT_AGE_SECONDS` | No | `604800` | Reports older than seven days become unknown |
-| `URL_REPUTATION_RATE_LIMIT_PER_MINUTE` | No | `4` | Per-process request budget |
-| `URL_REPUTATION_COOLDOWN_SECONDS` | No | `60` | Cooldown after HTTP 429 |
-| `URL_REPUTATION_REVIEW_MALICIOUS_MIN` | No | `1` | Malicious detections requiring review |
-| `URL_REPUTATION_BLOCK_MALICIOUS_MIN` | No | `2` | Malicious detections requiring block |
-| `URL_REPUTATION_SUSPICIOUS_REVIEW_MIN` | No | `1` | Suspicious detections requiring review |
-| `URL_REPUTATION_MAX_URLS_PER_MESSAGE` | No | `5` | Legacy helper only; integrated policy checks all extracted URLs |
-| `PYTHON_DOTENV_DISABLED` | No | Unset | Set `1` in test process to skip loading developer `.env` |
-| `OLLAMA_HOST` | Runtime setup | `127.0.0.1:11434` | Export in Ollama terminal; not configured by chat `.env` |
-| `OLLAMA_NO_CLOUD` | This local-only setup | Set `1` explicitly | Export in Ollama terminal to disable cloud features |
-
-Keep numeric URL settings at the agreed defaults; malformed numeric values can
-prevent startup. The template contains only safe defaults and a blank API key.
-`.env` is ignored; only `.env.example` belongs in Git.
-
-## Using rooms and the CLI
-
-Sign up (menu 1), then log in (menu 2). Usernames are trimmed/lowercased, 3-20
-letters a-z, digits or underscores. Passwords are 8-32 letters, digits or
-`@#$%^&*`, with at least two categories, and stored with salted bcrypt hashes.
-Passwords never enter the content-security modules.
-
-Client A: `/create General`; client B: `/join General`; then type a message.
-Commands: `/list`, `/create NAME`, `/join NAME`, `/select NAME`, `/leave NAME`,
-`/history`, `/reconnect`, `/quit`. Names may contain spaces. Create/join/select
-select that room. Selection is per connection; stored membership in other rooms
-remains unchanged. Both sending and live receiving require that room to be selected
-and membership to remain active. Leave clears affected selections; reconnect
-requires login/selection (or join if previously left). History is available to
-active members even for messages missed while viewing another room.
-
-## Security flow and architecture
-
-`server.py` creates one long-lived `SecurityPolicy` in its FastAPI lifespan using
-`RuleDLPChecker`, `OllamaRecipeClassifier`, `RegexURLExtractor`, and
-`VirusTotalURLReputationChecker`. Production wiring uses the real adapters.
-
-For message requests:
-
-1. Validate the session, message and room fields, active membership and selection.
-2. Run the policy in a worker thread outside the server's shared async lock.
-3. Check deterministic DLP; call the local classifier only for scores 30-99;
-   then check every distinct supported URL from the original text.
-4. If allowed, reacquire the server lock and revalidate session, membership and
-   selection before saving. Broadcast only to eligible connections selecting that
-   room. If blocked, return a correlated structured rejection without persistence
-   or delivery.
-
-Signup and room creation run basic validation and deterministic name checks
-before creating database records. Username normalization stays in `chat_system/auth.py`;
-room names retain the existing nonempty, already-trimmed rule. Names do not use
-recipe scoring, LLM or URL checks. Existing accounts/rooms are not migrated.
-
-`chat_system/security_policy.py` holds up to ten prior attempted messages per `(user_id,
-room_id)`, including blocked attempts, and evaluates them with the current text.
-These security-only windows never enter SQLite. Per-user/room locks preserve their
-order while unrelated windows can proceed during slow checks. The count of
-user/room windows is not currently capped or expired; each window is capped at ten.
-The shared async lock is never held for model/provider I/O. `/health`, other users,
-and other rooms remain responsive under the tested workload; this is not a capacity
-guarantee under arbitrary thread-pool saturation.
-
-The client has one reader dispatching correlated responses and asynchronous events;
-`cli.py` handles interaction. The database module uses parameterized SQL,
-transactions and foreign keys. Repository-style persistence and room publish/
-subscribe separate storage from routing, at the cost of explicit SQL and managing
-connection/queue lifecycle. Each connection has a bounded outgoing queue; slow
-consumers can be disconnected.
-
-## DLP and local-model setup
-
-Only **pineapple** and its configured aliases/typos/evasions in `config/dlp_rules.json`
-receive deterministic score 100 and immediate blocking. Normal pizza discussion
-is allowed. Recipe clues accumulate across the window: pizza/dough/sauce +10;
-distinct ingredients +5 each (cap 20); quantity/unit +20; preparation +15;
-time/temperature +15; sequence markers +10; at least three categories in one
-attempt +10. Recipe scores cap at 99. Scores 0-29 skip the model; 30-99 request
-review. These heuristics are not a guarantee of detection or zero false positives.
-
-Install Ollama manually using [the official download](https://ollama.com/download).
-In a separate terminal, configure its [local-only mode](https://docs.ollama.com/faq#how-do-i-disable-ollama-cloud-features) and start the runtime:
+### Demo without internet or keys
 
 ```powershell
-$env:OLLAMA_NO_CLOUD = "1"
-$env:OLLAMA_HOST = "127.0.0.1:11434"
-ollama serve
+./.venv/Scripts/python.exe scripts/demo_services.py     # fake local model + fake VirusTotal on loopback
 ```
 
-Then download a local model explicitly (one-time internet access):
+Copy the printed `$env:` lines into the terminal that starts the server. The real
+adapters and policy are unchanged; only their endpoints point at the fixtures
+(`evil.example.com` → block, `review.example.com` → review, others allowed; recipe
+clues → block). Full script: [docs/DEMO.md](docs/DEMO.md).
 
-```powershell
-ollama pull qwen2.5:1.5b
-```
+## What the system does (requirement → implementation → evidence)
 
-The application never downloads a model. If an Ollama tray process already owns
-the port, configure/restart that process or stop it before the separate runtime.
-The environment table above lists the adapter settings.
+| Requirement | Implementation | Evidence |
+| --- | --- | --- |
+| Multithreaded server, clients on other laptops | asyncio event loop + worker threads for bcrypt/SQLite/security I/O; bind `0.0.0.0` | `tests/test_day1.py`, `tests/test_concurrency.py`, `scripts/load_test.py` |
+| WebSocket chat + small REST API, `/health` | `/ws` JSON frames; `GET /health`, `GET /api/reasons`, `GET /` | `tests/test_web_ui.py`, every server fixture waits on `/health` |
+| Signup/login, salted hashes, duplicates, invalid credentials, server-side enforcement | `chat_system/auth.py` (bcrypt, tokens), every protected action resolves the token on the server | `test_auth`, `test_real_websocket_flow`, `test_security_chat_and_names` |
+| Rooms and routing | create/join/leave/select/history; delivery only to connections with the room selected and active membership | `test_selected_room_routing`, browser test |
+| Validation and recovery | stable error codes for malformed/invalid input; disconnect/reconnect with server unaffected; history catch-up | `test_real_websocket_flow`, `test_real_cli`, `test_web_ui_browser.py` |
+| Logs | `chat.log`: connections, auth, requests, security decisions (metadata only) | browser test asserts log content; DEMO §4-5 |
+| DLP | protected-term rules with evasion handling; recipe-clue scoring across a 10-attempt window; local-model review for scores 30-99 | `tests/test_dlp.py`, `tests/test_security_policy.py`, `tests/test_local_llm.py` |
+| Anti-Bot | URL extraction + VirusTotal hostname reputation, 24 h cache, fail closed | `tests/test_url_security.py`, `tests/test_security_integration.py` |
+| Visible actions and reasons | `security` object in rejections; Web UI panel/banner; CLI print; `/api/reasons` | `tests/test_web_ui.py::test_reason_catalog_covers_every_server_and_policy_code` |
+| Design patterns | Strategy/DI (security pipeline), Observer (routing); Repository, Adapter | [docs/DESIGN_PATTERNS.md](docs/DESIGN_PATTERNS.md) |
+| Repository, tests, run instructions, docs | this repo; `pytest -q`; README + docs/ | CI on every push |
+| Bonus: load tests, Docker, CI/CD | `scripts/load_test.py` + report; `Dockerfile`/`docker-compose.yml`; `.github/workflows/ci.yml` | [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md) |
 
-The teammate's adapter accepts only loopback HTTP(S), disables redirects/proxies,
-requires strict JSON allow/block output, and preserves its configured socket
-timeout. CPU/cold starts can exceed it. Configure the Ollama process with cloud
-features disabled; localhost alone does not establish how a runtime executes a
-model. See `docs/setup/LOCAL_LLM_SETUP.md` for manual adapter checks and limitations.
+## Security controls in one paragraph
 
-Missing/unavailable models, timeout or malformed/unresolved output fail closed.
-With no model installed the chat still starts: ordinary low-score text works,
-but messages needing review are rejected. Real-model accuracy and timing require
-manual team verification; automated tests use controlled responses.
+Every message passes, in order: authentication → field validation → active
+membership → room selected → deterministic DLP (`forbidden_term` at score 100 for
+pineapple and its aliases/typos/leetspeak/homoglyph/separator evasions; recipe
+clues scored across the sender's last ten attempts in that room) → local-model
+review only for scores 30-99 (`recipe_blocked`, or `security_check_unavailable` if
+the model is missing/slow/malformed) → URL reputation for every extracted
+`http://`, `https://`, `www.` link by hostname (`malicious_url` for 2+ engine
+detections, `reputation_review_required` for uncertain verdicts,
+`reputation_unavailable` when the provider or key is missing) → save → broadcast.
+Usernames and room names get the deterministic term check. Nothing blocked is
+stored, delivered or logged in full; only hostnames ever leave the server and the
+linked pages are never visited. Details: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) §6.
 
-## URL reputation and secrets
+## Protocol summary
 
-Create/sign in to a VirusTotal account and obtain your key from its API-key page
-following [VirusTotal's instructions](https://docs.virustotal.com/docs/please-give-me-an-api-key).
-Paste it only into the ignored local `.env` value for `VIRUSTOTAL_API_KEY`, or
-supply it through the server environment/secret manager. Do not put real keys in source, commands committed to Git, or a
-shared terminal transcript. `.env`, logs, SQLite files and virtual environments are
-ignored. No credentials are required for the offline automated tests.
+One JSON object per WebSocket text frame (limit 64 KiB). Request:
+`{"id": "<1-64 chars>", "action": "...", "token": "...", ...fields}`. Response:
+`{"type": "response", "id", "action", "ok", ...}` or
+`{"type": "response", "id", "ok": false, "error": "<code>", "security"?: {...}}`.
+Event: `{"type": "event", "action": "room_message", "room_name", "room_id",
+"message_id", "sender_id", "username", "content"}`. Actions: `signup`, `login`,
+`list_groups`, `create_group`, `join_group`, `leave_group`, `select_room`,
+`history`, `send_message`. Codes are listed in `GET /api/reasons` and
+[docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) §3.
 
-`http://`, `https://` and `www.` links are extracted from original message text,
-normalized and deduplicated. Every extracted URL is checked. Submitted URLs are
-**never visited**: the adapter requests only existing hostname reports from
-VirusTotal. Its separate in-memory LRU cache holds safe, malicious and unknown
-verdicts for 24 hours, keyed by hostname. Different paths share that hostname
-verdict. Failures are not cached. Two malicious detections block; one detection,
-suspicious, unknown/stale results, and unsupported hosts return review, which the
-final policy conservatively blocks. A known malicious URL takes precedence over
-other URL failures; any failure otherwise prevents delivery.
+## Configuration
 
-`docs/setup/URL_SECURITY_NOTES.md` lists the module's other settings. Its legacy
-`evaluate_message()` helper and URL limit are not used by the integrated policy;
-the policy checks every URL via `check()`. `docs/reference/URL_SECURITY_INTEGRATION.patch` is a
-historical reference targeting an old API: **do not apply it**. Its preserved
-unified-diff context-marker spaces produce known Git whitespace warnings; source
-and documentation whitespace checks exclude this reference artifact.
+`.env` beside `server.py` is loaded at startup; existing OS variables win. Set
+`PYTHON_DOTENV_DISABLED=1` to ignore it (tests do). Never commit a populated `.env`.
 
-This is hostname reputation, not page-content scanning or proof of safety. Bare
-domains without a supported prefix are not checked in the integrated flow.
-Provider quota/rate limits, missing reports or connectivity can reject URL messages.
+| Variable | Default | Purpose |
+| --- | --- | --- |
+| `CHAT_DATABASE` | `chat.db` in the project root | SQLite file, created at startup |
+| `CHAT_LOG` | `chat.log` in the working directory | Server log |
+| `LOCAL_LLM_ENDPOINT` | `http://127.0.0.1:11434/api/generate` | Ollama generate URL (loopback only) |
+| `LOCAL_LLM_MODEL` | `qwen2.5:1.5b` | Installed local model |
+| `LOCAL_LLM_TIMEOUT_SECONDS` | `30` | Model call timeout; fail closed |
+| `VIRUSTOTAL_API_KEY` | unset | Required for URL lookups; blank fails closed |
+| `VIRUSTOTAL_API_BASE_URL` | official endpoint | Override only for fixtures/tests |
+| `URL_REPUTATION_REQUEST_TIMEOUT_SECONDS` | `10` | Provider timeout, no retries |
+| `URL_REPUTATION_CACHE_TTL_SECONDS` | `86400` | Hostname verdict cache (24 h) |
+| `URL_REPUTATION_CACHE_MAX_SIZE` | `512` | LRU size |
+| `URL_REPUTATION_MAX_REPORT_AGE_SECONDS` | `604800` | Older reports count as unknown |
+| `URL_REPUTATION_RATE_LIMIT_PER_MINUTE` | `4` | Local budget for the free API |
+| `URL_REPUTATION_COOLDOWN_SECONDS` | `60` | Pause after HTTP 429 |
+| `URL_REPUTATION_REVIEW_MALICIOUS_MIN` / `_BLOCK_MALICIOUS_MIN` | `1` / `2` | Detections for review / block |
+| `URL_REPUTATION_SUSPICIOUS_REVIEW_MIN` | `1` | Suspicious detections for review |
 
-## Protocol, errors and logs
+**Local model:** install Ollama, then in its own terminal
+`$env:OLLAMA_NO_CLOUD="1"; $env:OLLAMA_HOST="127.0.0.1:11434"; ollama serve` and
+once `ollama pull qwen2.5:1.5b`. Without a model the chat runs, but review-range
+recipe messages are rejected with `security_check_unavailable`.
+**VirusTotal:** create a free account, copy the API key into `.env`. Without it
+every message containing a link is rejected with `reputation_unavailable`.
 
-Each WebSocket text frame carries one JSON object. Requests have unique string
-`id` (1-64 characters), `action`, and `token` for protected operations. Responses
-have `type: response`, matching `id`, `ok`, and result fields or `error`.
-Events use `type: event`, `action: room_message`, and authoritative sender/room
-fields. Request IDs still correlate replies if events arrive first. The inbound
-limit is 64 KiB; malformed envelopes may return `id: null`, and oversized frames
-can close the connection. Identity always comes from the validated session.
-
-Actions: `signup`, `login`, `list_groups`, `create_group`, `join_group`,
-`leave_group`, `select_room`, `history`, `send_message`.
-
-Security rejections include safe `security` fields: action, risk_score, source,
-and reason_code. The CLI displays a readable explanation alongside the code:
-
-| Code | Meaning |
-| --- | --- |
-| `forbidden_term` | Protected pineapple term/evasion in a message or new name |
-| `recipe_blocked` | Local classifier identified recipe disclosure |
-| `security_check_unavailable` | Model failure, timeout or invalid/unresolved result |
-| `malicious_url` | Blocking URL reputation |
-| `reputation_unavailable` | Missing key, provider failure, malformed result or rate limit |
-| `reputation_review_required` | URL verdict remains uncertain or needs review |
-| `room_not_selected` | Select the target room before sending |
-
-Existing errors remain: `invalid_username`, `invalid_password`, `username_taken`,
-`invalid_credentials`, `unauthenticated`, `invalid_request`, `invalid_json`,
-`unsupported_operation`, `invalid_room_name`, `group_not_found`,
-`group_already_exists`, `already_member`, `not_active_member`, `internal_error`.
-Logs record timestamps, operation/user/room IDs, decision action, score, source and
-reason, plus connection and message IDs. They exclude passwords, tokens, API keys,
-model output and full blocked content. Unexpected failures return `internal_error`
-and a generic log entry, never exception text that could contain secrets.
-
-## Tests, load and security demo
+## Tests and verification
 
 ```powershell
 $env:PYTHON_DOTENV_DISABLED = "1"
-./.venv/Scripts/python.exe -m pytest -q tests/test_environment.py
-./.venv/Scripts/python.exe -m pytest -q tests/test_dlp.py tests/test_security_policy.py tests/test_local_llm.py tests/test_url_security.py
-./.venv/Scripts/python.exe -m pytest -q
-./.venv/Scripts/python.exe -m pytest -q tests/test_security_integration.py
+./.venv/Scripts/python.exe -m pytest -q                                   # full suite
+./.venv/Scripts/python.exe -m pytest -q tests/test_web_ui.py tests/test_web_ui_browser.py
 ./.venv/Scripts/python.exe -m compileall -q chat_system server.py client.py cli.py tests scripts
-./.venv/Scripts/python.exe scripts/security_smoke.py
-./.venv/Scripts/python.exe scripts/load_test.py --clients 3 --messages 2
+./.venv/Scripts/python.exe scripts/security_smoke.py                      # offline end-to-end security run
 ./.venv/Scripts/python.exe scripts/load_test.py --clients 8 --messages 10
 Remove-Item Env:PYTHON_DOTENV_DISABLED
 ```
 
-Normal pytest includes the small concurrency scenario; the larger load command is
-optional. Tests/harnesses use temporary databases and isolated loopback ports.
-The smoke runs the real server and client processes/adapters against controlled
-local HTTP model/provider fixtures. It does not use a real model or external API.
-Windows subprocess tests stop only their owned process tree, including the venv
-launcher child; a restrictive sandbox may need permission for this cleanup.
+The suite starts real server processes on free loopback ports with temporary
+databases, drives real WebSocket clients and the scripted CLI, and fakes the model
+and provider (no network, no quota). The browser test needs Playwright
+(`pip install playwright`; it uses an installed Edge/Chrome, or
+`playwright install chromium`) and is skipped otherwise. CI runs everything plus a
+Docker build on every push ([docs/DEPLOYMENT.md](docs/DEPLOYMENT.md)).
 
-For a manual demo, sign up/login two clients, create/join General, exchange ordinary
-pizza chat, then try `pineapple` and confirm rejection and absence from `/history`.
-Try a forbidden username and room name. Send recipe clues over several messages
-(e.g. `pizza`, then `200 g flour`, then preparation instructions) to trigger review.
-With a configured model, inspect its safe decision; without one, expect
-`security_check_unavailable`. Use the offline smoke for repeatable safe/malicious
-URL demonstrations without opening URLs or consuming API quota. Select another
-room on a third client, verify isolation, leave/rejoin and reconnect, and check
-`/health` during pending checks. See `docs/LOAD_TEST_REPORT.md` for measured results.
-
-Remaining limits: in-memory sessions without expiry, unpaginated history,
-unencrypted lab `ws://`, manually configured real services, bounded per-window
-attempt count but unbounded number of windows, and heuristic/model false positives
-and false negatives. No production capacity or cross-laptop validation is claimed.
-
-For real-service verification later, configure `.env`, start Ollama as above and
-run these commands from the repository on the server computer. The second command
-makes real Ollama and VirusTotal requests, uses synthetic text, and prints only
-safe decision fields. A URL verdict may legitimately be review/block; unavailable
-means configuration/connectivity/quota still needs attention.
+## Docker
 
 ```powershell
-ollama list
-@'
-import server  # Loads the root .env before the real adapters.
-from chat_system.local_llm import OllamaRecipeClassifier
-from chat_system.url_security import VirusTotalURLReputationChecker
-llm = OllamaRecipeClassifier().classify("Mix 200 g flour and bake for 20 minutes.", [])
-print(llm.action, llm.reason_code, llm.risk_score)
-checker = VirusTotalURLReputationChecker()
-try:
-    result = checker.check("https://www.python.org")
-    print(result.action, result.reason_code, result.risk_score)
-finally:
-    checker.close()
-'@ | ./.venv/Scripts/python.exe -
-./.venv/Scripts/python.exe server.py --host 0.0.0.0 --port 8000
+docker compose up --build        # Web UI at http://localhost:8000/
 ```
 
-Then use the two CLI terminals and demo above to verify the full message flow.
-These real-service commands require manual team configuration and have not been
-verified against a real model or provider by the automated/offline test runs.
+Details, health check and the loopback-model limitation: [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md).
+
+## Team and ownership
+
+Frozen contracts (`chat_system/security_contracts.py`, `COMMON_SECURITY_DECISIONS.md`)
+were merged first; then four parallel branches: DLP rules and policy
+(`codex/person1-dlp-policy`), local classifier (`LLM/bisan`), URL reputation
+(`aws/url-security`), load/reliability (`person-4/load-reliability`); one integrator
+branch (`integration/security-system`) wired them into the server; this delivery
+branch adds the Web UI, reason catalog, browser tests, Docker, CI and documentation.
+
+## Known limitations
+
+Plain `ws://` on the lab LAN; in-memory sessions without expiry (server restart
+logs everyone out); unpaginated history; heuristic DLP and hostname-only
+reputation can produce false positives/negatives; the local model is unreachable
+from inside Docker unless the container shares the host network; single process,
+single laptop capacity. What we would improve next is in [docs/DEMO.md](docs/DEMO.md) §8.
