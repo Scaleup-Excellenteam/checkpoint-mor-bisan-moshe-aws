@@ -1,0 +1,338 @@
+diff --git a/README.md b/README.md
+index cc74d7a..b523eab 100644
+--- a/README.md
++++ b/README.md
+@@ -3,6 +3,8 @@
+ A runnable public-group chat with signup/login, persistent SQLite messages,
+ room creation/listing, join/leave/rejoin, room selection, history, and live delivery.
+ Only authenticated active members can send, read history, or receive room events.
++Outgoing messages that mention a domain or URL are checked against VirusTotal's
++domain reputation before they are stored or delivered.
+ 
+ ## Setup (PowerShell, Python 3.12 tested; Python 3.10+ required)
+ 
+@@ -17,6 +19,23 @@ If `python` resolves to the Windows Store stub, use your installed Python's full
+ path for the first command. Server startup initializes the database automatically;
+ no separate initialization step is required.
+ 
++Configure the VirusTotal API key in the **same PowerShell session** that will start
++the server (it is read from the environment at startup and never written to disk):
++
++```powershell
++$env:VIRUSTOTAL_API_KEY = "paste-your-virustotal-api-key-here"
++```
++
++To make it persist across sessions for your user account instead:
++
++```powershell
++[Environment]::SetEnvironmentVariable("VIRUSTOTAL_API_KEY", "paste-your-key-here", "User")
++```
++
++Get a free key from a VirusTotal account (Profile → API key). Without a key the
++server still runs, but every message containing a domain is rejected with
++`reputation_unknown`, because an unverifiable link is never assumed safe.
++
+ Start the server:
+ 
+ ```powershell
+@@ -57,8 +76,17 @@ Messages missed while viewing another room remain available through `/history`.
+   async lock orders operations and membership snapshots; no socket I/O runs under
+   it. Each connection has a bounded outgoing queue and one writer. Slow consumers
+   are disconnected. This deliberately favors simple ordering over throughput.
++- `reputation.py`: domain extraction, VirusTotal communication and policy, kept
++  as three separate layers. `send_message` is processed in two phases: the
++  request/session/membership are validated and the reputation lookup runs
++  **without** the operation lock, then the lock is reacquired, authorization is
++  revalidated (membership may have changed while the lookup was pending), and only
++  then is the message saved and queued for delivery. A slow or failed lookup for
++  one sender never stalls other connections. Rejected messages are never saved,
++  so they never appear in history or in recipient queues.
+ - `client.py`: network client with one reader, request futures and an event queue.
+-  `cli.py` preserves the signup/login menu and handles interactive commands.
++  `cli.py` preserves the signup/login menu and handles interactive commands, and
++  prints a readable explanation for blocked or unverified links.
+ - `auth.py`: bcrypt with generated salts, normalization, credential verification,
+   and cryptographically random in-memory tokens. `database.py`: parameterized SQL,
+   transactions and short-lived connections with foreign keys; `schema.sql` unchanged.
+@@ -82,11 +110,21 @@ Actions: `signup`, `login` (username/password); `list_groups`; `create_group`,
+ `invalid_room_name`, `group_not_found`, `group_already_exists`, `already_member`,
+ `not_active_member`, and `internal_error` for unexpected failures.
+ 
++Reputation errors on `send_message` keep the same envelope (`type: response`,
++matching `id`, `ok: false`) with a stable `error` plus `blocked_domain` and
++`checked_domains` fields: `malicious_domain` (at least one engine flagged the
++domain malicious), `suspicious_domain` (at least one flagged it suspicious), and
++`reputation_unknown` (no usable evidence: missing/stale/invalid report,
++undetected-only, missing key, timeout, HTTP error or exhausted quota). These are
++reputation-based decisions about VirusTotal's scan history, not guarantees that a
++site is genuine or safe.
++
+ ## Verification and configuration
+ 
+ ```powershell
+ ./.venv/Scripts/python.exe -m pytest -q
+-./.venv/Scripts/python.exe -m compileall -q auth.py database.py server.py client.py cli.py tests
++./.venv/Scripts/python.exe -m pytest -q tests/test_reputation.py   # reputation only
++./.venv/Scripts/python.exe -m compileall -q auth.py database.py server.py client.py cli.py reputation.py tests
+ ```
+ 
+ Tests use temporary databases, isolated ports, real server subprocesses, three
+@@ -94,9 +132,64 @@ network clients, and a scripted CLI. They cover auth, membership/history, persis
+ room isolation, malformed input, leave/rejoin, reconnect, and health. The CLI smoke
+ uses piped input; interactive terminals hide passwords with getpass.
+ 
++`tests/test_reputation.py` never contacts the real VirusTotal API and consumes no
++quota. Unit tests use an in-process `httpx.MockTransport`; end-to-end tests point
++the real server subprocess at a local mock VirusTotal HTTP server via
++`VIRUSTOTAL_API_BASE_URL`. They cover ordinary messages; allowed, malicious,
++suspicious, unknown and stale reports; multiple domains with one blocked; URL
++parsing and deceptive hostnames; missing key, timeout, auth errors and HTTP 429;
++cache reuse, expiration and coalescing of duplicate lookups; blocked messages
++never being saved or delivered; membership changing while a check is pending; and
++other clients continuing to work during a slow lookup.
++
++## Domain reputation policy and settings
++
++Every distinct domain in a message is looked up with
++`GET https://www.virustotal.com/api/v3/domains/{domain}` (key in the `x-apikey`
++header; existing reports only, nothing is submitted for scanning, and the
++user-supplied URL is never fetched). Defaults are conservative and configurable
++through environment variables read at server startup:
++
++| Variable | Default | Meaning |
++| --- | --- | --- |
++| `VIRUSTOTAL_API_KEY` | unset | Required for lookups. Never logged or returned to clients. |
++| `REPUTATION_MALICIOUS_THRESHOLD` | `1` | Malicious detections at or above this block with `malicious_domain`. |
++| `REPUTATION_SUSPICIOUS_THRESHOLD` | `1` | Suspicious detections at or above this block with `suspicious_domain`. |
++| `REPUTATION_MAX_REPORT_AGE_SECONDS` | `604800` (7 days) | Reports older than this are stale → `reputation_unknown`. |
++| `REPUTATION_MAX_DOMAINS_PER_MESSAGE` | `5` | Extra domains beyond this are dropped, not checked. |
++| `REPUTATION_CACHE_TTL_SECONDS` | `900` | How long a verdict is reused before re-querying. |
++| `REPUTATION_CACHE_MAX_SIZE` | `512` | Bounded LRU cache of domain verdicts. |
++| `REPUTATION_REQUEST_TIMEOUT_SECONDS` | `10` | Per-lookup timeout; there are no retries. |
++| `REPUTATION_RATE_LIMIT_PER_MINUTE` | `4` | Local budget matching VirusTotal's free public API. |
++| `REPUTATION_COOLDOWN_SECONDS` | `60` | Pause after an HTTP 429 before trying again. |
++| `VIRUSTOTAL_API_BASE_URL` | official endpoint | Only for tests pointing at a mock server. |
++
++Decision order per domain: malicious → `malicious_domain`; suspicious →
++`suspicious_domain`; then a report must be recent **and** contain at least one
++harmless verdict to be allowed; anything else (no timestamp, stale, undetected-only,
++404, missing key, timeout, HTTP/auth error, 429, malformed JSON) is
++`reputation_unknown` and rejected. Missing verification is never treated as safety.
++Simultaneous lookups for the same domain share one HTTP request.
++
++Reputation limitations: bare mentions without `http(s)://` or `www.` are only
++recognized for a curated list of common TLDs (see `reputation.py`) to avoid treating
++`config.yml` or `node.js` as domains, so obscure-TLD bare mentions are missed while
++prefixed links are always checked. IP-address links and internal hostnames
++(`localhost`, `*.local`, `*.internal`, `*.lan`, `*.home`, `*.corp`, `*.test`,
++`*.invalid`, `*.example`, `*.localdomain`) are skipped, not looked up. The exact
++parsed hostname is checked (`paypal.com.evil.tld` is never trusted because it
++contains `paypal.com`), but a subdomain may have no report of its own and will then
++be rejected as unknown. IDNA uses Python's built-in codec, not full IDNA2008/UTS-46.
++The local rate counter only sees this process; other applications sharing the same
++key can still trigger VirusTotal throttling, which is handled by the 429 cooldown.
++Domains beyond the per-message limit are silently unchecked. Verdicts are cached
++in memory only and reset on restart.
++
+ `CHAT_DATABASE` overrides the default repository `chat.db`; `CHAT_LOG` overrides
+ `chat.log`. Logs contain event metadata, not passwords, tokens or message bodies.
+-Both generated files and the virtual environment are ignored by Git.
++Blocked sends log the request ID, action, reason and the checked domains only.
++Both generated files and the virtual environment are ignored by Git, as are `.env`
++files, so the API key should never be committed.
+ 
+ Sessions are process-local, have no expiration and disappear on server restart;
+ run one server worker. Membership persists across disconnects. History is currently
+diff --git a/cli.py b/cli.py
+index e4d0706..739a268 100644
+--- a/cli.py
++++ b/cli.py
+@@ -6,6 +6,12 @@ from getpass import getpass
+ from websockets.exceptions import ConnectionClosed
+ from client import ChatClient
+ 
++REPUTATION_ERROR_MESSAGES = {
++    "malicious_domain": "blocked - a link in that message is flagged malicious",
++    "suspicious_domain": "blocked - a link in that message is flagged suspicious",
++    "reputation_unknown": "blocked - a link in that message could not be verified as safe",
++}
++
+ 
+ async def display_events(client):
+     while True:
+@@ -60,7 +66,14 @@ async def chat_client(uri):
+                 if response["ok"] and action == "leave_group" and room == selected:
+                     selected = None
+             if not response["ok"]:
+-                print("Error:", response["error"])
++                explanation = REPUTATION_ERROR_MESSAGES.get(response["error"])
++                if explanation:
++                    domain = response.get("blocked_domain")
++                    suffix = f" (domain: {domain})" if domain else ""
++                    print(f"Error: {response['error']} - {explanation}{suffix}")
++                    print("Note: this is a reputation-based decision, not proof a site is genuine or malicious.")
++                else:
++                    print("Error:", response["error"])
+             elif "groups" in response:
+                 for group in response["groups"]:
+                     print(group["room_name"])
+diff --git a/server.py b/server.py
+index 4e586f3..69ce4b9 100644
+--- a/server.py
++++ b/server.py
+@@ -6,12 +6,16 @@ import os
+ import sqlite3
+ from contextlib import asynccontextmanager
+ 
++import httpx
+ from fastapi import FastAPI, WebSocket, WebSocketDisconnect
+ import auth
+ import database as db
++import reputation
+ 
+ log = logging.getLogger("chat")
+ 
++REPUTATION_BLOCK_REASONS = {"malicious_domain", "suspicious_domain", "reputation_unknown"}
++
+ 
+ @asynccontextmanager
+ async def lifespan(app):
+@@ -20,8 +24,11 @@ async def lifespan(app):
+     db.initialize_database()
+     app.state.clients = {}
+     app.state.operations = asyncio.Lock()
++    app.state.http_client = httpx.AsyncClient()
++    app.state.reputation = reputation.ReputationChecker(app.state.http_client, os.environ.get("VIRUSTOTAL_API_KEY"))
+     log.info("server_start")
+     yield
++    await app.state.http_client.aclose()
+     log.info("server_stop")
+ 
+ 
+@@ -37,8 +44,8 @@ class InvalidRequest(Exception):
+     pass
+ 
+ 
+-def error(code):
+-    return {"ok": False, "error": code}
++def error(code, **extra):
++    return {"ok": False, "error": code, **extra}
+ 
+ 
+ def execute(request):
+@@ -49,7 +56,7 @@ def execute(request):
+         result = getattr(auth, action)(request["username"], request["password"])
+         log.info("auth action=%s ok=%s", action, result["ok"])
+         return result, result.get("user_id") if action == "login" and result["ok"] else None
+-    if action not in {"list_groups", "create_group", "join_group", "leave_group", "select_room", "history", "send_message"}:
++    if action not in {"list_groups", "create_group", "join_group", "leave_group", "select_room", "history"}:
+         return error("unsupported_operation"), None
+     token = request.get("token")
+     user = auth.validate_session(token) if isinstance(token, str) else None
+@@ -76,12 +83,46 @@ def execute(request):
+         return error("not_active_member"), user
+     if action == "select_room":
+         return {"ok": True, **room}, user
+-    if action == "history":
+-        return {"ok": True, "messages": db.get_room_history(user, room["room_id"])}, user
++    return {"ok": True, "messages": db.get_room_history(user, room["room_id"])}, user
++
++
++def validate_send_message(request):
++    """Validate a send_message request's session, room and content. No reputation check, no save."""
++    token = request.get("token")
++    user = auth.validate_session(token) if isinstance(token, str) else None
++    if user is None:
++        return error("unauthenticated"), None, None, None
++    name = request.get("room_name")
++    if not isinstance(name, str) or not name.strip() or name != name.strip():
++        return error("invalid_room_name"), user, None, None
++    room = db.get_group_by_name(name)
++    if room is None:
++        return error("group_not_found"), user, None, None
++    if not db.is_active_member(user, room["room_id"]):
++        return error("not_active_member"), user, None, None
+     content = request.get("content")
+     if not isinstance(content, str) or not content.strip():
+-        return error("invalid_request"), user
+-    return db.save_message(room["room_id"], user, content), user
++        return error("invalid_request"), user, None, None
++    return None, user, room, content
++
++
++async def prepare_send_message(request):
++    """Validate the request and check domain reputation, outside app.state.operations.
++
++    Returns (error_result, user, room, content); error_result is None on success.
++    A slow or failed reputation lookup only blocks this coroutine, never the
++    global operation lock, so other connections keep working meanwhile.
++    """
++    validation_error, user, room, content = await asyncio.to_thread(validate_send_message, request)
++    if validation_error is not None:
++        return validation_error, user, None, None
++
++    security = await app.state.reputation.evaluate_message(content)
++    if security["verdict"] == "block":
++        blocked = error(security["reason"], blocked_domain=security.get("blocked_domain"),
++                         checked_domains=security.get("checked_domains", []))
++        return blocked, user, None, None
++    return None, user, room, content
+ 
+ 
+ async def writer(ws, queue):
+@@ -133,6 +174,41 @@ async def websocket_endpoint(ws: WebSocket):
+                 if not isinstance(request_id, str) or not 1 <= len(request_id) <= 64 or not isinstance(action, str):
+                     request_id = None
+                     raise InvalidRequest("invalid_request")
++                if action == "send_message":
++                    # Validation and the reputation lookup run without the lock: a
++                    # slow or stuck external HTTP call must never stall other clients.
++                    prepared_error, user, room, content = await prepare_send_message(request)
++                    if user is not None:
++                        if state["user"] != user:
++                            state["selected_room"] = None
++                        state["user"] = user
++                    if prepared_error is not None:
++                        enqueue(ws, state, {"type": "response", "id": request_id, "action": action, **prepared_error})
++                        if prepared_error["error"] in REPUTATION_BLOCK_REASONS:
++                            log.warning("reputation_block request_id=%s action=%s user=%s reason=%s blocked_domain=%s checked_domains=%s",
++                                        request_id, action, user, prepared_error["error"],
++                                        prepared_error.get("blocked_domain"), prepared_error.get("checked_domains"))
++                        else:
++                            log.info("request action=%s user=%s ok=%s error=%s message_id=%s", action, user, False, prepared_error.get("error"), None)
++                    else:
++                        # Reacquire the lock and revalidate before saving: membership or
++                        # session state may have changed while the lookup was pending.
++                        async with app.state.operations:
++                            if (auth.validate_session(request.get("token")) != user
++                                    or not await asyncio.to_thread(db.is_active_member, user, room["room_id"])):
++                                result = error("not_active_member")
++                            else:
++                                result = await asyncio.to_thread(db.save_message, room["room_id"], user, content)
++                            enqueue(ws, state, {"type": "response", "id": request_id, "action": action, **result})
++                            if result["ok"]:
++                                event = {"type": "event", "action": "room_message", "room_name": request["room_name"], **result}
++                                for peer, recipient in list(app.state.clients.items()):
++                                    if (recipient["user"] is not None
++                                            and recipient["selected_room"] == result["room_id"]
++                                            and await asyncio.to_thread(db.is_active_member, recipient["user"], result["room_id"])):
++                                        enqueue(peer, recipient, event)
++                            log.info("request action=%s user=%s ok=%s error=%s message_id=%s", action, user, result["ok"], result.get("error"), result.get("message_id"))
++                    continue
+                 # Serialize state transitions and recipient snapshots, never socket I/O.
+                 async with app.state.operations:
+                     result, user = await asyncio.to_thread(execute, request)
+@@ -149,13 +225,6 @@ async def websocket_endpoint(ws: WebSocket):
+                                 if recipient["user"] == user and recipient["selected_room"] == result["room_id"]:
+                                     recipient["selected_room"] = None
+                     enqueue(ws, state, {"type": "response", "id": request_id, "action": action, **result})
+-                    if action == "send_message" and result["ok"]:
+-                        event = {"type": "event", "action": "room_message", "room_name": request["room_name"], **result}
+-                        for peer, recipient in list(app.state.clients.items()):
+-                            if (recipient["user"] is not None
+-                                    and recipient["selected_room"] == result["room_id"]
+-                                    and await asyncio.to_thread(db.is_active_member, recipient["user"], result["room_id"])):
+-                                enqueue(peer, recipient, event)
+                     log.info("request action=%s user=%s ok=%s error=%s message_id=%s", action, user, result["ok"], result.get("error"), result.get("message_id"))
+             except InvalidRequest as exc:
+                 code = str(exc) if str(exc) in {"invalid_request", "invalid_json"} else "invalid_request"
