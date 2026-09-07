@@ -94,13 +94,23 @@ def open_client(browser, url):
     return page
 
 
+def auth_tab(page, mode):
+    page.click(f'.tab[data-mode="{mode}"]')
+
+
 def sign_up_and_log_in(page, username):
+    auth_tab(page, "signup")
     page.fill("#username", username)
     page.fill("#password", PASSWORD)
     page.click("#btn-signup")
     expect(page.locator("#auth-message")).to_contain_text("created")
+    # Signup switches to the sign-in tab with the username prefilled.
+    expect(page.locator("#username")).to_have_value(username)
+    page.fill("#password", PASSWORD)
     page.click("#btn-login")
     expect(page.locator("#me")).to_have_text(username)
+    expect(page.locator("#view-chat")).to_be_visible()
+    expect(page.locator("#view-auth")).to_be_hidden()
 
 
 def send(page, text):
@@ -120,13 +130,18 @@ def test_two_browsers_chat_with_visible_security_decisions_and_recovery(demo_sta
 
     # Identity: signup, duplicate, wrong password, login, forbidden username.
     sign_up_and_log_in(alice, "alice")
+    auth_tab(bobby, "signup")
     bobby.fill("#username", "alice")
     bobby.fill("#password", PASSWORD)
     bobby.click("#btn-signup")
     expect(bobby.locator("#auth-message")).to_contain_text("username_taken")
+    auth_tab(bobby, "login")
+    bobby.fill("#username", "alice")
     bobby.fill("#password", "Wrong1234")
     bobby.click("#btn-login")
     expect(bobby.locator("#auth-message")).to_contain_text("invalid_credentials")
+    expect(bobby.locator("#view-auth")).to_be_visible()
+    auth_tab(bobby, "signup")
     bobby.fill("#username", "pineapple")
     bobby.fill("#password", PASSWORD)
     bobby.click("#btn-signup")
@@ -134,9 +149,14 @@ def test_two_browsers_chat_with_visible_security_decisions_and_recovery(demo_sta
     expect(bobby.locator("#decisions .decision.block .badge.control")).to_have_text("DLP")
     sign_up_and_log_in(bobby, "bobby")
 
-    # Unauthenticated browser: chat controls stay disabled; nothing is delivered to it.
+    # Unauthenticated browser stays on the sign-in page; chat controls are disabled; nothing is delivered to it.
+    expect(guest.locator("#view-auth")).to_be_visible()
+    expect(guest.locator("#view-chat")).to_be_hidden()
     expect(guest.locator("#message")).to_be_disabled()
     expect(guest.locator("#btn-refresh-rooms")).to_be_disabled()
+    if os.environ.get("UI_SCREENSHOT_PATH"):
+        guest.set_viewport_size({"width": 1400, "height": 900})
+        guest.screenshot(path=os.environ["UI_SCREENSHOT_PATH"].replace(".png", "-login.png"))
 
     # Rooms: create, join, live delivery to both, isolation from a non-member.
     alice.fill("#new-room", "General")
@@ -183,6 +203,14 @@ def test_two_browsers_chat_with_visible_security_decisions_and_recovery(demo_sta
     expect(bobby.locator("#messages")).to_contain_text("welcome back")
     assert messages(bobby)[-2:] == ["while you were away", "welcome back"]
 
+    # A page reload keeps the session (server-side token) and lands on the chat page.
+    bobby.reload()
+    expect(bobby.locator("#view-chat")).to_be_visible()
+    expect(bobby.locator("#me")).to_have_text("bobby")
+    expect(bobby.locator("#room-title")).to_have_text("# General")
+    expect(bobby.locator("#messages")).to_contain_text("welcome back")
+
+    # Logging out returns to the sign-in page.
     # Leaving stops delivery; history is refused to non-members.
     bobby.click("#btn-leave")
     expect(bobby.locator("#room-title")).to_have_text("No room selected")
@@ -190,6 +218,9 @@ def test_two_browsers_chat_with_visible_security_decisions_and_recovery(demo_sta
     expect(alice.locator("#messages")).to_contain_text("after bobby left")
     bobby.wait_for_timeout(300)
     assert "after bobby left" not in messages(bobby)
+    bobby.click("#btn-logout")
+    expect(bobby.locator("#view-auth")).to_be_visible()
+    expect(bobby.locator("#auth-message")).to_contain_text("Signed out")
 
     # DLP recipe review resolved by the (fixture) local model. Done last on purpose:
     # the ten-attempt window keeps recipe clues "hot", so later messages by the same

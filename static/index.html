@@ -4,97 +4,186 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>TSPO Secret Slice Chat</title>
-  <link rel="stylesheet" href="/static/styles.css">
+  <link rel="stylesheet" href="/static/styles.css?v=2">
 </head>
-<body>
-  <header class="topbar">
-    <div class="brand">
-      <span class="logo" aria-hidden="true">&#127829;</span>
-      <div>
-        <h1>TSPO Secret Slice Chat</h1>
-        <p class="tagline">Top-Secret Pizza Lovers Organization &middot; server-side DLP and Anti-Bot</p>
-      </div>
-    </div>
-    <div class="status-group">
-      <span id="ws-status" class="pill pill-off" title="WebSocket connection">disconnected</span>
-      <span id="health-status" class="pill pill-off" title="GET /health">health: unknown</span>
-      <span id="server-label" class="server-label"></span>
-      <button id="btn-disconnect" class="btn btn-ghost" type="button" title="Close the WebSocket to demonstrate a disconnect">Disconnect</button>
-      <button id="btn-reconnect" class="btn btn-ghost" type="button" title="Reopen the WebSocket, restore session and room">Reconnect</button>
-    </div>
-  </header>
+<body data-view="auth">
 
-  <main class="layout">
-    <aside class="sidebar">
-      <section class="card" id="auth-card">
-        <h2>Identity</h2>
-        <form id="auth-form" autocomplete="off">
-          <label for="username">Username</label>
-          <input id="username" name="username" type="text" placeholder="3-20 letters, digits, _" required>
-          <label for="password">Password</label>
-          <input id="password" name="password" type="password" placeholder="8-32 chars, two categories" required>
-          <div class="row">
-            <button id="btn-signup" class="btn" type="button">Sign up</button>
-            <button id="btn-login" class="btn btn-primary" type="button">Log in</button>
+  <!-- ===================================================== AUTH PAGE -->
+  <section id="view-auth" class="view view-auth">
+    <div class="auth-shell">
+      <aside class="auth-hero">
+        <div class="hero-brand">
+          <span class="logo-mark" aria-hidden="true">
+            <svg viewBox="0 0 64 64" width="44" height="44"><defs><linearGradient id="g" x1="0" x2="1" y1="0" y2="1"><stop offset="0" stop-color="#ffb347"/><stop offset="1" stop-color="#ff5e3a"/></linearGradient></defs><path d="M32 4 60 52H4Z" fill="url(#g)"/><path d="M32 12 52 48H12Z" fill="#fff3d6" opacity=".9"/><circle cx="32" cy="36" r="4" fill="#d93d2a"/><circle cx="24" cy="44" r="3" fill="#d93d2a"/><circle cx="40" cy="44" r="3" fill="#d93d2a"/><circle cx="32" cy="24" r="2.5" fill="#d93d2a"/></svg>
+          </span>
+          <div>
+            <p class="eyebrow">Top-Secret Pizza Lovers Organization</p>
+            <h1>Secret Slice Chat</h1>
           </div>
-        </form>
-        <div id="auth-info" class="hidden">
-          <p>Logged in as <strong id="me"></strong></p>
-          <button id="btn-logout" class="btn btn-ghost" type="button">Log out (forget token)</button>
         </div>
-        <p id="auth-message" class="hint"></p>
-      </section>
-
-      <section class="card" id="rooms-card">
-        <div class="card-head">
-          <h2>Rooms</h2>
-          <button id="btn-refresh-rooms" class="btn btn-ghost btn-small" type="button" title="list_groups">Refresh</button>
+        <p class="hero-lead">Real-time rooms for members only. Every message is checked on the server before anyone sees it.</p>
+        <ul class="hero-points">
+          <li><span class="dot dot-ok"></span><span><strong>Identity first.</strong> Salted bcrypt passwords, server-side sessions, no anonymous access.</span></li>
+          <li><span class="dot dot-warn"></span><span><strong>DLP.</strong> The recipe stays secret: protected terms, evasions and recipe fragments are blocked with a reason.</span></li>
+          <li><span class="dot dot-bad"></span><span><strong>Anti-Bot.</strong> Links are checked against reputation evidence before delivery. Malicious hosts never reach the room.</span></li>
+        </ul>
+        <div class="hero-status">
+          <span id="ws-status" class="pill pill-off" title="WebSocket connection">disconnected</span>
+          <span id="health-status" class="pill pill-off" title="GET /health">health: unknown</span>
+          <span id="server-label" class="mono muted"></span>
+          <button id="btn-reconnect-auth" class="btn btn-ghost btn-small hidden" type="button">Retry connection</button>
         </div>
-        <form id="create-form" class="row">
-          <input id="new-room" type="text" placeholder="New room name" required>
-          <button class="btn btn-small" type="submit">Create</button>
-        </form>
-        <ul id="room-list" class="room-list"></ul>
-        <p class="hint">Join makes you a member. Open selects the room on this connection for live delivery. Leave stops delivery and membership.</p>
-      </section>
-    </aside>
+      </aside>
 
-    <section class="chat card">
-      <div class="card-head">
-        <h2 id="room-title">No room selected</h2>
-        <div class="row">
-          <button id="btn-history" class="btn btn-ghost btn-small" type="button" disabled title="history">Reload history</button>
-          <button id="btn-leave" class="btn btn-ghost btn-small" type="button" disabled title="leave_group">Leave room</button>
+      <main class="auth-card" aria-labelledby="auth-heading">
+        <div class="tabs" role="tablist">
+          <button type="button" class="tab active" data-mode="login" role="tab" aria-selected="true">Sign in</button>
+          <button type="button" class="tab" data-mode="signup" role="tab" aria-selected="false">Create account</button>
+        </div>
+        <h2 id="auth-heading">Welcome back</h2>
+        <p id="auth-subtitle" class="muted">Sign in to join your rooms.</p>
+
+        <form id="auth-form" autocomplete="off" novalidate>
+          <label class="field">
+            <span class="field-label">Username</span>
+            <span class="input-wrap">
+              <svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="8" r="4"/><path d="M4 21c0-4 4-6 8-6s8 2 8 6"/></svg>
+              <input id="username" name="username" type="text" placeholder="e.g. alice_01" autocomplete="username" spellcheck="false" required>
+            </span>
+            <span class="field-hint" data-hint="signup">3-20 lowercase letters, digits or underscores.</span>
+          </label>
+
+          <label class="field">
+            <span class="field-label">Password</span>
+            <span class="input-wrap">
+              <svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><rect x="4" y="10" width="16" height="10" rx="2"/><path d="M8 10V7a4 4 0 0 1 8 0v3"/></svg>
+              <input id="password" name="password" type="password" placeholder="Your password" autocomplete="current-password" required>
+              <button type="button" id="toggle-password" class="icon-btn" aria-label="Show password" title="Show password">
+                <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M2 12s4-7 10-7 10 7 10 7-4 7-10 7S2 12 2 12Z"/><circle cx="12" cy="12" r="3"/></svg>
+              </button>
+            </span>
+            <span class="field-hint" data-hint="signup">8-32 characters from letters, digits and <span class="mono">@#$%^&amp;*</span>, using at least two of those groups.</span>
+          </label>
+
+          <div id="auth-message" class="form-message" role="status" aria-live="polite"></div>
+
+          <button id="btn-login" class="btn btn-primary btn-block" type="submit" data-mode="login">
+            <span class="btn-label">Sign in</span>
+          </button>
+          <button id="btn-signup" class="btn btn-primary btn-block hidden" type="button" data-mode="signup">
+            <span class="btn-label">Create account</span>
+          </button>
+        </form>
+
+        <p class="switch-hint">
+          <span data-mode-text="login">New here? <a href="#" data-switch="signup">Create an account</a></span>
+          <span data-mode-text="signup" class="hidden">Already a member? <a href="#" data-switch="login">Sign in</a></span>
+        </p>
+        <p class="fineprint">Connections use the chat server on this address. Passwords are never shown in logs or the protocol trace.</p>
+      </main>
+    </div>
+  </section>
+
+  <!-- ===================================================== CHAT PAGE -->
+  <section id="view-chat" class="view view-chat hidden">
+    <header class="topbar">
+      <div class="brand">
+        <span class="logo-mark small" aria-hidden="true">
+          <svg viewBox="0 0 64 64" width="28" height="28"><path d="M32 4 60 52H4Z" fill="#ff7a3d"/><path d="M32 12 52 48H12Z" fill="#fff3d6" opacity=".9"/><circle cx="32" cy="36" r="4" fill="#d93d2a"/><circle cx="24" cy="44" r="3" fill="#d93d2a"/><circle cx="40" cy="44" r="3" fill="#d93d2a"/></svg>
+        </span>
+        <div>
+          <h1>Secret Slice Chat</h1>
+          <p class="tagline">Server-side DLP and Anti-Bot on every message</p>
         </div>
       </div>
-      <div id="messages" class="messages" aria-live="polite"></div>
-      <div id="banner" class="banner hidden" role="alert"></div>
-      <form id="send-form" class="composer">
-        <input id="message" type="text" placeholder="Log in and open a room to chat" autocomplete="off" disabled maxlength="4000">
-        <button id="btn-send" class="btn btn-primary" type="submit" disabled>Send</button>
-      </form>
-    </section>
-
-    <aside class="sidebar">
-      <section class="card" id="security-card">
-        <div class="card-head">
-          <h2>Security decisions</h2>
-          <button id="btn-clear-decisions" class="btn btn-ghost btn-small" type="button">Clear</button>
+      <div class="status-group">
+        <span id="ws-status-chat" class="pill pill-off" title="WebSocket connection">disconnected</span>
+        <span id="health-status-chat" class="pill pill-off" title="GET /health">health: unknown</span>
+        <button id="btn-disconnect" class="btn btn-ghost btn-small" type="button" title="Close the WebSocket to demonstrate a disconnect">
+          <svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M18 6 6 18M6 6l12 12"/></svg> Disconnect
+        </button>
+        <button id="btn-reconnect" class="btn btn-ghost btn-small" type="button" title="Reopen the WebSocket, restore session and room">
+          <svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M21 12a9 9 0 1 1-3-6.7M21 3v6h-6"/></svg> Reconnect
+        </button>
+        <div class="user-chip" title="Signed in">
+          <span id="avatar" class="avatar">?</span>
+          <strong id="me"></strong>
+          <button id="btn-logout" class="btn btn-ghost btn-small" type="button" title="Forget the token on this client">Log out</button>
         </div>
-        <p class="hint">Every rejected request appears here with its action, reason code, risk score and source. Blocked content is never stored or delivered.</p>
-        <ul id="decisions" class="decisions"></ul>
+      </div>
+    </header>
+
+    <div class="layout">
+      <aside class="sidebar">
+        <section class="card" id="rooms-card">
+          <div class="card-head">
+            <h2>Rooms</h2>
+            <button id="btn-refresh-rooms" class="btn btn-ghost btn-small" type="button" title="list_groups">
+              <svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M21 12a9 9 0 1 1-3-6.7M21 3v6h-6"/></svg> Refresh
+            </button>
+          </div>
+          <form id="create-form" class="row">
+            <input id="new-room" type="text" placeholder="Create a room…" maxlength="64" required>
+            <button class="btn btn-primary btn-small" type="submit" title="create_group">Create</button>
+          </form>
+          <input id="room-filter" type="search" placeholder="Filter rooms" aria-label="Filter rooms">
+          <ul id="room-list" class="room-list" aria-label="Rooms"></ul>
+          <p class="hint"><strong>Join</strong> makes you a member. <strong>Open</strong> selects the room on this connection for live delivery. Leaving stops delivery and membership.</p>
+        </section>
+      </aside>
+
+      <section class="chat card">
+        <div class="card-head chat-head">
+          <div>
+            <h2 id="room-title">No room selected</h2>
+            <p id="room-subtitle" class="muted small">Pick a room on the left or create a new one.</p>
+          </div>
+          <div class="row">
+            <button id="btn-history" class="btn btn-ghost btn-small" type="button" disabled title="history">Reload history</button>
+            <button id="btn-leave" class="btn btn-ghost btn-small danger" type="button" disabled title="leave_group">Leave room</button>
+          </div>
+        </div>
+        <div id="messages" class="messages" aria-live="polite">
+          <div class="empty-state" id="empty-state">
+            <div class="empty-art" aria-hidden="true">🍕</div>
+            <h3>No room open</h3>
+            <p>Join or open a room to start chatting. Live messages arrive only for the room you have open.</p>
+          </div>
+        </div>
+        <div id="banner" class="banner hidden" role="alert"></div>
+        <form id="send-form" class="composer">
+          <input id="message" type="text" placeholder="Open a room to chat" autocomplete="off" disabled maxlength="4000">
+          <button id="btn-send" class="btn btn-primary" type="submit" disabled>
+            <svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M22 2 11 13M22 2l-7 20-4-9-9-4Z"/></svg> Send
+          </button>
+        </form>
+        <p class="composer-hint muted small">Messages are checked by DLP and Anti-Bot on the server before delivery. Blocked messages are never stored.</p>
       </section>
 
-      <section class="card" id="log-card">
-        <div class="card-head">
-          <h2>Protocol log</h2>
-          <button id="btn-clear-log" class="btn btn-ghost btn-small" type="button">Clear</button>
-        </div>
-        <pre id="protocol-log" class="protocol-log"></pre>
-      </section>
-    </aside>
-  </main>
+      <aside class="sidebar">
+        <section class="card" id="security-card">
+          <div class="card-head">
+            <h2>Security decisions</h2>
+            <button id="btn-clear-decisions" class="btn btn-ghost btn-small" type="button">Clear</button>
+          </div>
+          <ul id="decisions" class="decisions">
+            <li class="decisions-empty muted small" id="decisions-empty">No rejections yet. Every blocked request appears here with its action, reason code, risk score and source.</li>
+          </ul>
+        </section>
 
-  <script src="/static/app.js"></script>
+        <section class="card" id="log-card">
+          <div class="card-head">
+            <h2>Protocol log</h2>
+            <button id="btn-clear-log" class="btn btn-ghost btn-small" type="button">Clear</button>
+          </div>
+          <pre id="protocol-log" class="protocol-log" aria-label="Protocol log"></pre>
+        </section>
+      </aside>
+    </div>
+  </section>
+
+  <div id="toasts" class="toasts" aria-live="polite"></div>
+
+  <script src="/static/app.js?v=2"></script>
 </body>
 </html>

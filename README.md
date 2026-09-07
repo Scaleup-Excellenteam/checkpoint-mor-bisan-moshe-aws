@@ -7,7 +7,9 @@ bcrypt hashes, rooms with per-connection routing, and server-side **DLP** and
 visible actions and reason codes. Includes tests, load harness, Docker packaging
 and a CI pipeline.
 
-![Web UI: rooms, live chat, security decisions with reason codes, protocol log](docs/images/web-ui.png)
+![Sign-in page: Sign in / Create account tabs, connection and health status](docs/images/web-ui-login.png)
+
+![Chat workspace: rooms, live chat, security decisions with reason codes, protocol log](docs/images/web-ui.png)
 
 | Deliverable | Where |
 | --- | --- |
@@ -53,9 +55,11 @@ windows and reputation caches are in memory.
 
 ### Connect clients (other laptops)
 
-* **Web UI:** open `http://<server-ip>:8000/` in a browser. Sign up, log in,
+* **Web UI:** open `http://<server-ip>:8000/` in a browser. The first page is
+  Sign in / Create account; after signing in you land in the chat workspace:
   create/join/open rooms, chat, and watch the Security decisions panel and the
-  protocol log. Disconnect/Reconnect buttons demonstrate recovery.
+  protocol log. Disconnect/Reconnect buttons demonstrate recovery; a page reload
+  keeps you signed in while the server runs; Log out returns to the sign-in page.
 * **CLI:** `./.venv/Scripts/python.exe client.py --uri ws://<server-ip>:8000/ws`
   then menu `1` sign up, `2` log in; commands `/list`, `/create NAME`,
   `/join NAME`, `/select NAME`, `/leave NAME`, `/history`, `/reconnect`, `/quit`;

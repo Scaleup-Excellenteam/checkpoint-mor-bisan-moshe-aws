@@ -1,5 +1,7 @@
 /* TSPO Secret Slice Chat: browser client for the JSON-over-WebSocket protocol.
  *
+ * Two screens in one document: the auth page (#view-auth) and the chat
+ * workspace (#view-chat), switched by a hash route (#/login, #/chat).
  * Same protocol as cli.py/client.py: one JSON object per frame, requests carry a
  * unique string id + action + token, responses echo the id, events carry
  * action=room_message. No identity is taken from the client; the server decides.
@@ -9,17 +11,21 @@
 
   const $ = (id) => document.getElementById(id);
   const REQUEST_TIMEOUT_MS = 30000;
-  const MAX_LOG_LINES = 60;
+  const MAX_LOG_LINES = 80;
+  const STORAGE_KEY = "tspo.session";
 
   const state = {
     ws: null,
     token: null,
     username: null,
     room: null,          // selected room name on this connection
-    pending: new Map(),  // id -> {resolve, reject, timer, action}
+    rooms: [],
+    mode: "login",       // auth tab: login | signup
+    pending: new Map(),  // id -> {resolve, timer, action}
     reasons: { security: {}, errors: {} },
     logLines: [],
     manualClose: false,
+    rejections: 0,
   };
 
   // ------------------------------------------------------------------ helpers
@@ -45,10 +51,34 @@
     return node;
   }
 
-  function setPill(id, text, kind) {
-    const pill = $(id);
-    pill.textContent = text;
-    pill.className = `pill pill-${kind}`;
+  function setPill(baseId, text, kind) {
+    for (const id of [baseId, baseId + "-chat"]) {
+      const pill = $(id);
+      if (!pill) continue;
+      pill.textContent = text;
+      pill.className = `pill pill-${kind}`;
+    }
+  }
+
+  function saveSession() {
+    try {
+      if (state.token) {
+        sessionStorage.setItem(STORAGE_KEY, JSON.stringify({ token: state.token, username: state.username, room: state.room }));
+      } else {
+        sessionStorage.removeItem(STORAGE_KEY);
+      }
+    } catch (_) { /* storage unavailable: session lives for this page only */ }
+  }
+
+  function loadSession() {
+    try {
+      const raw = sessionStorage.getItem(STORAGE_KEY);
+      if (!raw) return;
+      const saved = JSON.parse(raw);
+      state.token = saved.token || null;
+      state.username = saved.username || null;
+      state.room = saved.room || null;
+    } catch (_) { /* ignore corrupt storage */ }
   }
 
   function log(direction, payload) {
@@ -58,6 +88,12 @@
     const pre = $("protocol-log");
     pre.textContent = state.logLines.join("\n");
     pre.scrollTop = pre.scrollHeight;
+  }
+
+  function toast(kind, text) {
+    const node = el("div", `toast ${kind}`, text);
+    $("toasts").appendChild(node);
+    setTimeout(() => node.remove(), 3800);
   }
 
   function banner(kind, text, code) {
@@ -79,6 +115,51 @@
     const security = state.reasons.security[code];
     if (security) return `${security.control}: ${security.title}. ${security.explanation}`;
     return state.reasons.errors[code] || "";
+  }
+
+  // ------------------------------------------------------------------ routing
+
+  function showView(name) {
+    document.body.dataset.view = name;
+    $("view-auth").classList.toggle("hidden", name !== "auth");
+    $("view-chat").classList.toggle("hidden", name !== "chat");
+    const wanted = name === "chat" ? "#/chat" : "#/login";
+    if (location.hash !== wanted) history.replaceState(null, "", wanted);
+    window.scrollTo(0, 0);
+  }
+
+  function setAuthMode(mode) {
+    state.mode = mode;
+    for (const tab of document.querySelectorAll(".tab")) {
+      const active = tab.dataset.mode === mode;
+      tab.classList.toggle("active", active);
+      tab.setAttribute("aria-selected", String(active));
+    }
+    $("btn-login").classList.toggle("hidden", mode !== "login");
+    $("btn-signup").classList.toggle("hidden", mode !== "signup");
+    $("btn-login").type = mode === "login" ? "submit" : "button";
+    $("btn-signup").type = mode === "signup" ? "submit" : "button";
+    for (const hint of document.querySelectorAll('[data-hint="signup"]')) hint.classList.toggle("hidden", mode !== "signup");
+    for (const text of document.querySelectorAll("[data-mode-text]")) {
+      text.classList.toggle("hidden", text.dataset.modeText !== mode);
+    }
+    $("auth-heading").textContent = mode === "login" ? "Welcome back" : "Join the organization";
+    $("auth-subtitle").textContent = mode === "login"
+      ? "Sign in to join your rooms."
+      : "Pick a username and a strong password. Names are checked by DLP too.";
+    $("password").autocomplete = mode === "login" ? "current-password" : "new-password";
+    setAuthMessage("", "");
+  }
+
+  function setAuthMessage(text, kind, code) {
+    const node = $("auth-message");
+    node.className = `form-message ${kind || ""}`.trim();
+    node.textContent = "";
+    if (code) {
+      node.appendChild(el("code", null, code));
+      node.appendChild(document.createTextNode(" "));
+    }
+    node.appendChild(document.createTextNode(text));
   }
 
   // ------------------------------------------------------------ connection
@@ -108,7 +189,7 @@
           ? "Disconnected by user. Use Reconnect to continue; the server keeps running."
           : `Connection closed (code ${event.code}). Use Reconnect.`);
         log("close", { code: event.code, manual: state.manualClose });
-        failPending("Disconnected; reconnect and try again.");
+        failPending();
         updateControls();
         if (!settled) { settled = true; reject(new Error("connection failed")); }
       };
@@ -127,37 +208,46 @@
     try {
       await connect();
     } catch (_) {
-      banner("block", "Could not reach the server. Is it running?");
+      toast("bad", "Could not reach the server. Is it running?");
+      updateControls();
       return;
     }
-    // Sessions are server-side and survive the socket; re-establish this connection's identity and room.
-    if (state.token) {
-      const check = await request("list_groups");
-      if (!check.ok) {
-        state.token = null; state.username = null; state.room = null;
-        banner("info", "Session no longer valid (server restarted?). Please log in again.", check.error);
-        updateControls();
-        return;
-      }
-      renderRooms(check.groups);
-      if (state.room) {
-        const selected = await request("select_room", { room_name: state.room });
-        if (selected.ok) {
-          systemMessage(`Reconnected: room "${state.room}" selected again; loading history.`);
-          await loadHistory();
-        } else {
-          state.room = null;
-          systemMessage("Reconnected, but the previous room could not be selected: " + selected.error);
-        }
-      }
-    }
+    await restoreSession();
     updateControls();
   }
 
-  function failPending(reason) {
+  // Sessions are server-side and survive the socket; re-establish this connection's identity and room.
+  async function restoreSession() {
+    if (!state.token) return false;
+    const check = await request("list_groups");
+    if (!check.ok) {
+      const reason = check.error;
+      state.token = null; state.username = null; state.room = null;
+      saveSession();
+      showView("auth");
+      setAuthMessage("Your session is no longer valid (server restarted?). Please sign in again.", "error", reason);
+      return false;
+    }
+    renderRooms(check.groups);
+    showView("chat");
+    if (state.room) {
+      const selected = await request("select_room", { room_name: state.room });
+      if (selected.ok) {
+        systemMessage(`Reconnected: room "${state.room}" selected again; loading history.`);
+        await loadHistory();
+      } else {
+        state.room = null;
+        saveSession();
+        systemMessage("Reconnected, but the previous room could not be selected: " + selected.error);
+      }
+    }
+    return true;
+  }
+
+  function failPending() {
     for (const [id, entry] of state.pending) {
       clearTimeout(entry.timer);
-      entry.reject(new Error(reason));
+      entry.resolve({ ok: false, error: "disconnected" });
       state.pending.delete(id);
     }
   }
@@ -174,12 +264,7 @@
         state.pending.delete(id);
         resolve({ ok: false, error: "timeout" });
       }, REQUEST_TIMEOUT_MS);
-      state.pending.set(id, {
-        resolve,
-        reject: (err) => resolve({ ok: false, error: "disconnected", detail: err.message }),
-        timer,
-        action,
-      });
+      state.pending.set(id, { resolve, timer, action });
       state.ws.send(JSON.stringify(payload));
     });
   }
@@ -187,9 +272,7 @@
   function handleMessage(message) {
     log("recv", message);
     if (message.type === "event") {
-      if (message.action === "room_message") {
-        if (message.room_name === state.room) appendMessage(message, null);
-      }
+      if (message.action === "room_message" && message.room_name === state.room) appendMessage(message, null);
       return;
     }
     const entry = state.pending.get(message.id);
@@ -202,13 +285,20 @@
 
   // ------------------------------------------------------------- rendering
 
+  function hideEmptyState() {
+    const empty = $("empty-state");
+    if (empty) empty.remove();
+  }
+
   function systemMessage(text) {
+    hideEmptyState();
     const node = el("div", "msg system", `${now()} ${text}`);
     $("messages").appendChild(node);
     scrollMessages();
   }
 
   function appendMessage(message, sentAt) {
+    hideEmptyState();
     const node = el("div", "msg" + (message.username === state.username ? " own" : ""));
     const meta = el("div", "meta");
     meta.appendChild(el("span", "who", message.username));
@@ -226,13 +316,16 @@
   }
 
   function renderRooms(groups) {
+    if (groups) state.rooms = groups;
+    const filter = ($("room-filter").value || "").trim().toLowerCase();
     const list = $("room-list");
     list.textContent = "";
-    if (!groups.length) {
-      list.appendChild(el("li", "hint", "No rooms yet. Create one."));
+    const visible = state.rooms.filter((g) => g.room_name.toLowerCase().includes(filter));
+    if (!visible.length) {
+      list.appendChild(el("li", "room-empty", state.rooms.length ? "No rooms match the filter." : "No rooms yet. Create the first one above."));
       return;
     }
-    for (const group of groups) {
+    for (const group of visible) {
       const item = el("li", "room-item" + (group.room_name === state.room ? " selected" : ""));
       item.appendChild(el("span", "room-name", group.room_name));
       const actions = el("div", "room-actions");
@@ -268,83 +361,114 @@
       item.appendChild(el("div", "facts",
         `risk_score=${security.risk_score} source=${security.source} reason_code=${security.reason_code}`));
     }
+    const empty = $("decisions-empty");
+    if (empty) empty.remove();
     const list = $("decisions");
     list.insertBefore(item, list.firstChild);
+    state.rejections += 1;
   }
 
   function updateControls() {
     const connected = !!state.ws && state.ws.readyState === WebSocket.OPEN;
     const loggedIn = !!state.token;
-    $("auth-form").classList.toggle("hidden", loggedIn);
-    $("auth-info").classList.toggle("hidden", !loggedIn);
-    $("me").textContent = state.username || "";
-    $("btn-signup").disabled = !connected;
     $("btn-login").disabled = !connected;
+    $("btn-signup").disabled = !connected;
+    $("me").textContent = state.username || "";
+    $("avatar").textContent = state.username ? state.username[0] : "?";
     $("btn-refresh-rooms").disabled = !connected || !loggedIn;
     $("new-room").disabled = !connected || !loggedIn;
     $("room-title").textContent = state.room ? `# ${state.room}` : "No room selected";
+    $("room-subtitle").textContent = state.room
+      ? "Live messages for this room appear here. Blocked messages are never stored or delivered."
+      : "Pick a room on the left or create a new one.";
     const canChat = connected && loggedIn && !!state.room;
     $("message").disabled = !canChat;
     $("btn-send").disabled = !canChat;
     $("btn-history").disabled = !canChat;
     $("btn-leave").disabled = !canChat;
-    $("message").placeholder = canChat ? `Message #${state.room}` : "Log in and open a room to chat";
+    $("message").placeholder = canChat ? `Message #${state.room}` : (connected ? "Open a room to chat" : "Disconnected");
     $("btn-disconnect").disabled = !connected;
     $("btn-reconnect").disabled = connected;
+    $("btn-reconnect-auth").classList.toggle("hidden", connected);
+    for (const item of document.querySelectorAll(".room-item")) {
+      item.classList.toggle("selected", item.firstChild.textContent === state.room);
+    }
   }
 
   // --------------------------------------------------------------- actions
 
   async function authenticate(action) {
-    const username = $("username").value;
+    const username = $("username").value.trim();
     const password = $("password").value;
     if (!username || !password) {
-      $("auth-message").textContent = "Enter a username and a password.";
+      setAuthMessage("Enter a username and a password.", "error");
       return;
     }
+    const button = $(action === "signup" ? "btn-signup" : "btn-login");
+    button.classList.add("loading");
+    button.disabled = true;
     const response = await request(action, { username, password });
+    button.classList.remove("loading");
+    button.disabled = false;
     if (!response.ok) {
-      $("auth-message").textContent = `${action} rejected: ${response.error}. ${explain(response.error)}`;
+      const text = explain(response.error) || `${action} was rejected.`;
+      setAuthMessage(text, "error", response.error);
       return;
     }
     if (action === "signup") {
-      $("auth-message").textContent = `Account "${response.username}" created. Now log in.`;
+      setAuthMode("login");
+      $("username").value = response.username;
+      $("password").value = "";
+      $("password").focus();
+      setAuthMessage(`Account "${response.username}" created. Sign in to continue.`, "success");
+      toast("ok", `Account ${response.username} created`);
       return;
     }
     state.token = response.token;
     state.username = response.username;
+    saveSession();
     $("password").value = "";
-    $("auth-message").textContent = "";
-    systemMessage(`Logged in as ${state.username}.`);
+    setAuthMessage("", "");
+    showView("chat");
+    systemMessage(`Signed in as ${state.username}.`);
+    toast("ok", `Welcome, ${state.username}`);
     clearBanner();
     updateControls();
     await refreshRooms();
+    $("new-room").focus();
   }
 
   function logout() {
     state.token = null;
     state.username = null;
     state.room = null;
+    saveSession();
     $("messages").textContent = "";
-    systemMessage("Token forgotten on this client. Protected requests will now be rejected as unauthenticated.");
     renderRooms([]);
+    clearBanner();
     updateControls();
+    setAuthMode("login");
+    showView("auth");
+    setAuthMessage("Signed out on this client. The server will reject protected requests without a valid token.", "success");
+    $("username").focus();
   }
 
   async function refreshRooms() {
     const response = await request("list_groups");
     if (response.ok) renderRooms(response.groups);
-    else banner("info", explain(response.error) || "Could not list rooms.", response.error);
+    else toast("bad", explain(response.error) || "Could not list rooms.");
   }
 
   async function createRoom(name) {
     const response = await request("create_group", { room_name: name });
     if (!response.ok) {
       banner("block", explain(response.error) || "Room not created.", response.error);
+      toast("bad", `Room not created: ${response.error}`);
       return;
     }
     $("new-room").value = "";
     clearBanner();
+    toast("ok", `Room ${response.room_name} created`);
     await enterRoom(response.room_name, `Created and opened room "${response.room_name}".`);
     await refreshRooms();
   }
@@ -360,6 +484,7 @@
       return;
     }
     clearBanner();
+    toast("ok", `Joined ${response.room_name}`);
     await enterRoom(response.room_name, `Joined and opened room "${response.room_name}".`);
     await refreshRooms();
   }
@@ -378,6 +503,7 @@
 
   async function enterRoom(name, note) {
     state.room = name;
+    saveSession();
     $("messages").textContent = "";
     systemMessage(note);
     updateControls();
@@ -409,7 +535,9 @@
       return;
     }
     state.room = null;
+    saveSession();
     systemMessage(`Left room "${name}". You will not receive its messages until you join again.`);
+    toast("info", `Left ${name}`);
     clearBanner();
     updateControls();
     await refreshRooms();
@@ -461,11 +589,23 @@
 
   function wire() {
     $("server-label").textContent = location.host;
-    $("btn-signup").onclick = () => authenticate("signup");
-    $("btn-login").onclick = () => authenticate("login");
-    $("auth-form").onsubmit = (event) => { event.preventDefault(); authenticate("login"); };
+    for (const tab of document.querySelectorAll(".tab")) tab.onclick = () => setAuthMode(tab.dataset.mode);
+    for (const link of document.querySelectorAll("[data-switch]")) {
+      link.onclick = (event) => { event.preventDefault(); setAuthMode(link.dataset.switch); $("username").focus(); };
+    }
+    $("auth-form").onsubmit = (event) => { event.preventDefault(); authenticate(state.mode); };
+    $("btn-login").onclick = (event) => { event.preventDefault(); authenticate("login"); };
+    $("btn-signup").onclick = (event) => { event.preventDefault(); authenticate("signup"); };
+    $("toggle-password").onclick = () => {
+      const field = $("password");
+      const show = field.type === "password";
+      field.type = show ? "text" : "password";
+      $("toggle-password").setAttribute("aria-label", show ? "Hide password" : "Show password");
+      $("toggle-password").title = show ? "Hide password" : "Show password";
+    };
     $("btn-logout").onclick = logout;
     $("btn-refresh-rooms").onclick = refreshRooms;
+    $("room-filter").oninput = () => renderRooms();
     $("create-form").onsubmit = (event) => {
       event.preventDefault();
       const name = $("new-room").value;
@@ -476,21 +616,31 @@
     $("send-form").onsubmit = (event) => { event.preventDefault(); sendMessage(); };
     $("btn-disconnect").onclick = disconnect;
     $("btn-reconnect").onclick = reconnect;
+    $("btn-reconnect-auth").onclick = reconnect;
     $("btn-clear-decisions").onclick = () => { $("decisions").textContent = ""; };
     $("btn-clear-log").onclick = () => { state.logLines = []; $("protocol-log").textContent = ""; };
+    window.addEventListener("hashchange", () => {
+      if (location.hash === "#/chat" && !state.token) showView("auth");
+      if (location.hash === "#/login" && state.token) showView("chat");
+    });
   }
 
   async function main() {
     wire();
+    loadSession();
+    setAuthMode("login");
+    showView("auth");
     updateControls();
     await Promise.all([loadReasons(), checkHealth()]);
     setInterval(checkHealth, 15000);
     try {
       await connect();
     } catch (_) {
-      systemMessage("Could not connect to the chat server. Click Reconnect once it is running.");
+      setAuthMessage("Could not connect to the chat server. Start it and click Reconnect, or reload this page.", "error");
     }
+    if (state.token) await restoreSession();  // page reload keeps you signed in while the server runs
     updateControls();
+    if (!state.token) $("username").focus();
   }
 
   document.addEventListener("DOMContentLoaded", main);
