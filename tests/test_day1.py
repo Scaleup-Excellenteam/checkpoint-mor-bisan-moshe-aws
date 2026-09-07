@@ -1,6 +1,7 @@
 import asyncio
 import json
 import os
+import re
 from pathlib import Path
 import socket
 import subprocess
@@ -13,6 +14,7 @@ import websockets
 import auth
 import database as db
 from client import ChatClient
+from scripts.load_test import stop_process
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -98,8 +100,7 @@ def running_server(tmp_path):
         else: pytest.fail('Server startup timeout')
         yield f'ws://127.0.0.1:{port}/ws'
     finally:
-        proc.terminate()
-        proc.wait(timeout=10)
+        stop_process(proc)
         output.close()
 
 
@@ -164,8 +165,7 @@ def test_real_cli(running_server):
     for expected in ('signup: success', 'login: success', 'create_group: success', 'hello from CLI', 'leave_group: success', 'join_group: success', 'select_room: success', 'Reconnected.'):
         assert expected in result.stdout, result.stdout
     assert '[CLI Room] cliuser: hello from CLI' in result.stdout
-    assert any('cliuser: hello from CLI' in line and '[CLI Room]' not in line
-               for line in result.stdout.splitlines())
+    assert re.search(r'\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2} cliuser: hello from CLI', result.stdout)
 
 
 def test_selected_room_routing(running_server):

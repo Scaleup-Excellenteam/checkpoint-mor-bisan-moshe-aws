@@ -1,4 +1,4 @@
-"""Person 1 coordinator; intentionally not connected to the chat server.
+"""Shared coordinator wired once by the server lifespan.
 
 Integrator: create one SecurityPolicy(checker, classifier, extractor, reputation),
 then evaluate(text, MessageSecurityContext(authenticated_user_id, room_id)) after
@@ -8,8 +8,8 @@ passwords. Injected synchronous adapters must enforce their own I/O timeouts.
 
 The coordinator owns attempt windows. context.recent_attempts seeds a new key
 once (trusted server data only), never appends duplicates on subsequent calls.
-A lock orders evaluations and all attempts, including blocked ones. This simple
-implementation serializes adapters; it is not a high-throughput scheduler.
+Per-user/room locks order evaluations and all attempts, including blocked ones.
+Unrelated windows can progress while an adapter is waiting on I/O.
 Windows retain ten strings per user/room, with no expiry or bound on key count.
 Unresolved URL review is conservatively blocked as reputation_review_required.
 No provider reason/details are copied into the final result, preventing leakage.
@@ -33,6 +33,7 @@ class SecurityPolicy:
         self.reputation = reputation
         self._attempts = {}
         self._lock = RLock()
+        self._key_locks = {}
 
     @staticmethod
     def _decision(value):
@@ -45,8 +46,10 @@ class SecurityPolicy:
     def evaluate(self, text: str, context: MessageSecurityContext) -> SecurityDecision:
         if not isinstance(text, str):
             raise TypeError('text must be a string')
+        key = (context.user_id, context.room_id)
         with self._lock:
-            key = (context.user_id, context.room_id)
+            key_lock = self._key_locks.setdefault(key, RLock())
+        with key_lock:
             if key not in self._attempts:
                 self._attempts[key] = deque(context.recent_attempts[-CONTEXT_WINDOW_SIZE:],
                                             maxlen=CONTEXT_WINDOW_SIZE)
@@ -61,7 +64,7 @@ class SecurityPolicy:
             if score > ALLOW_MAX_SCORE or rules.action == 'review':
                 try:
                     verdict = self._decision(self.classifier.classify(text, previous))
-                    if verdict.action == 'review':
+                    if verdict.action == 'review' or verdict.risk_score > 99:
                         raise ValueError('Classifier must resolve review')
                 except Exception:
                     return SecurityDecision('block', 'security_check_unavailable', score, 'policy')
@@ -73,17 +76,26 @@ class SecurityPolicy:
                 urls = self.extractor.extract(text)  # Original, not DLP-normalized text.
                 if not isinstance(urls, list) or not all(isinstance(url, str) for url in urls):
                     raise ValueError('Invalid URL extraction result')
-                review = False
-                for url in dict.fromkeys(urls):
+            except Exception:
+                return SecurityDecision('block', 'reputation_unavailable', score, 'policy')
+            review = malicious = unavailable = False
+            for url in dict.fromkeys(urls):
+                try:
                     verdict = self._decision(self.reputation.check(url))
                     score = max(score, verdict.risk_score)
                     if verdict.action == 'block':
-                        reason = ('reputation_unavailable' if verdict.reason_code == 'reputation_unavailable'
-                                  else 'malicious_url')
-                        return SecurityDecision('block', reason, score, 'policy')
+                        if verdict.reason_code == 'reputation_unavailable':
+                            unavailable = True
+                        else:
+                            malicious = True
                     review |= verdict.action == 'review'
-                if review:
-                    return SecurityDecision('block', 'reputation_review_required', score, 'policy')
-            except Exception:
+                except Exception:
+                    unavailable = True
+            # Check every URL; a known malicious URL takes precedence over failures.
+            if malicious:
+                return SecurityDecision('block', 'malicious_url', score, 'policy')
+            if unavailable:
                 return SecurityDecision('block', 'reputation_unavailable', score, 'policy')
+            if review:
+                return SecurityDecision('block', 'reputation_review_required', score, 'policy')
             return SecurityDecision('allow', 'security_allowed', score, 'policy')

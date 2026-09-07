@@ -385,7 +385,7 @@ class VirusTotalURLReputationChecker:
         try:
             return self._fetch_and_decide_unsafe(domain)
         except Exception:
-            log.exception("url_reputation_lookup_failed domain=%s", domain)
+            log.error("url_reputation_lookup_failed")
             return _unavailable(domain, "internal_error")
 
     def _fetch_and_decide_unsafe(self, domain: str) -> SecurityDecision:

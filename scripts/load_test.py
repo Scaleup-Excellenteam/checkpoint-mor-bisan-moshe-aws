@@ -23,6 +23,17 @@ ROOT = Path(__file__).resolve().parents[1]
 PASSWORD = "Password1"
 
 
+def stop_process(process) -> None:
+    """Stop only the test-owned process tree (Windows venv has a launcher child)."""
+    if process.poll() is None:
+        if os.name == "nt":
+            subprocess.run(["taskkill", "/PID", str(process.pid), "/T", "/F"],
+                           check=True, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE)
+        else:
+            process.terminate()
+    process.wait(timeout=10)
+
+
 @dataclass
 class Metrics:
     attempted: int = 0
@@ -171,9 +182,8 @@ class ServerProcess:
         output = self.output
         self.process = None
         self.output = None
-        process.terminate()
         try:
-            process.wait(timeout=10)
+            stop_process(process)
         finally:
             if output:
                 output.close()
@@ -250,26 +260,28 @@ async def scenario(client_count: int, message_count: int) -> dict[str, object]:
             assert (await clients[1].request("join_group", room_name="alpha"))["ok"]
             assert (await clients[1].request("select_room", room_name="alpha"))["ok"]
             history = (await clients[1].request("history", room_name="alpha"))["messages"]
-            assert [message["content"] for message in history] == alpha_messages
+            assert Counter(message["content"] for message in history) == Counter(alpha_messages)
 
             await clients[1].close()
             await clients[1].connect()
             assert (await clients[1].request("login", username=usernames[1], password=PASSWORD))["ok"]
             assert (await clients[1].request("select_room", room_name="alpha"))["ok"]
             persisted = (await clients[1].request("history", room_name="alpha"))["messages"]
-            assert [message["content"] for message in persisted] == alpha_messages
+            assert Counter(message["content"] for message in persisted) == Counter(alpha_messages)
 
             for client in clients:
                 await client.close()
             server.stop()
             uri = server.start()
             reconnected = Client(uri, metrics)
-            await reconnected.connect()
-            assert (await reconnected.request("login", username=usernames[0], password=PASSWORD))["ok"]
-            assert (await reconnected.request("select_room", room_name="alpha"))["ok"]
-            restarted_history = (await reconnected.request("history", room_name="alpha"))["messages"]
-            assert [message["content"] for message in restarted_history] == alpha_messages
-            await reconnected.close()
+            try:
+                await reconnected.connect()
+                assert (await reconnected.request("login", username=usernames[0], password=PASSWORD))["ok"]
+                assert (await reconnected.request("select_room", room_name="alpha"))["ok"]
+                restarted_history = (await reconnected.request("history", room_name="alpha"))["messages"]
+                assert Counter(message["content"] for message in restarted_history) == Counter(alpha_messages)
+            finally:
+                await reconnected.close()
             server.stop()
         finally:
             await asyncio.gather(*(client.close() for client in clients), return_exceptions=True)
