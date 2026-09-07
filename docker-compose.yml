@@ -1,0 +1,22 @@
+# docker compose up --build
+# Web UI: http://localhost:8000/   Health: http://localhost:8000/health
+# Teammates on the LAN use http://<host-ip>:8000/ (allow inbound TCP 8000).
+services:
+  chat:
+    build: .
+    image: tspo-chat
+    container_name: tspo-chat
+    ports:
+      - "8000:8000"
+    env_file:
+      - path: .env
+        required: false
+    environment:
+      CHAT_DATABASE: /data/chat.db
+      CHAT_LOG: /data/chat.log
+    volumes:
+      - chat-data:/data
+    restart: unless-stopped
+
+volumes:
+  chat-data:
