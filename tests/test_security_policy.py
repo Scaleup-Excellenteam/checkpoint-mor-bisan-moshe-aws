@@ -153,3 +153,11 @@ def test_extraction_failure_and_invalid_verdict():
             'https://example.test', MessageSecurityContext(1, 1))
         assert result.reason_code == 'reputation_unavailable'
         assert result.details == {}
+
+
+def test_production_hard_match_never_calls_llm_or_provider():
+    llm, urls = Classifier(), URLs()
+    policy = SecurityPolicy(RuleDLPChecker(), llm, urls, urls)
+    result = policy.evaluate('p!zz@ https://example.test', MessageSecurityContext(1, 1))
+    assert result.reason_code == 'forbidden_term' and result.risk_score == 100
+    assert llm.calls == [] and urls.original == [] and urls.checked == []

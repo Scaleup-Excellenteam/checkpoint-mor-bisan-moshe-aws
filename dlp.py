@@ -48,7 +48,9 @@ class RuleDLPChecker:
         rules = json.loads(Path(rules_path).read_text(encoding='utf-8-sig'))
         if not rules['protected_terms']:
             raise ValueError('Configure protected_terms in dlp_rules.json before use')
-        self.translation = str.maketrans(rules['substitutions'])
+        self.translation = str.maketrans({normalize(symbol): normalize(target)
+                                         for symbol, target in rules['substitutions'].items()})
+        self.ambiguous = rules.get('ambiguous_substitutions', {})
         separators = rules['separators']
         self.separators = set(separators)
         gap = '[' + re.escape(separators) + ']*'
@@ -61,7 +63,12 @@ class RuleDLPChecker:
                 compact = ''.join(c for c in self._hard_text(form) if c not in self.separators)
                 if not compact or not compact.isalnum():
                     raise ValueError('Protected forms must normalize to letters/digits')
-                self.hard_patterns.append(re.compile(r'(?<![^\W_])' + gap.join(map(re.escape, compact)) + r'(?![^\W_])'))
+                letters = []
+                for char in compact:
+                    alternatives = char + ''.join(symbol for symbol, targets in self.ambiguous.items()
+                                                   if char in targets)
+                    letters.append('[' + re.escape(alternatives) + ']')
+                self.hard_patterns.append(re.compile(r'(?<![^\W_])' + gap.join(letters) + r'(?![^\W_])'))
             if entry.get('fuzzy', False):
                 term = self._hard_text(entry['term'])
                 if not term.isalpha() or len(term) < 5:

@@ -1,14 +1,158 @@
 {
-  "configuration_note": "Protected vocabulary awaits team confirmation; populate protected_terms before integration.",
-  "protected_terms": [],
+  "configuration_note": "Curated pizza-specific vocabulary; sources establish concepts, typo/evasion forms are local security rules. Generic ingredients and verbs are soft scoring cues only. No short ambiguous abbreviations are approved. Pizza/calzone use explicit typos rather than fuzzy matching (piazza/canzone are legitimate unrelated words).",
+  "protected_terms": [
+    {
+      "term": "pizza",
+      "aliases": [
+        "pizzas",
+        "neapolitan pizza",
+        "pizza margherita",
+        "pizza marinara",
+        "pizza dough",
+        "pizza sauce",
+        "pizza crust"
+      ],
+      "abbreviations": [],
+      "one_edit_variants": [
+        "piza",
+        "pizaa",
+        "pizzza",
+        "pizaz",
+        "pizz"
+      ],
+      "fuzzy": false
+    },
+    {
+      "term": "pizzeria",
+      "aliases": [
+        "pizzerias",
+        "pizzerie"
+      ],
+      "abbreviations": [],
+      "one_edit_variants": [
+        "pizeria",
+        "pizzaria",
+        "pizzerria"
+      ],
+      "fuzzy": true
+    },
+    {
+      "term": "pizzaiolo",
+      "aliases": [
+        "pizzaioli",
+        "pizzaiola",
+        "pizzaiuolo",
+        "pizzaiuoli"
+      ],
+      "abbreviations": [],
+      "one_edit_variants": [
+        "pizaiolo",
+        "pizzaiollo"
+      ],
+      "fuzzy": true
+    },
+    {
+      "term": "calzone",
+      "aliases": [
+        "calzones",
+        "calzoni"
+      ],
+      "abbreviations": [],
+      "one_edit_variants": [
+        "calzne",
+        "calzon",
+        "calzoone"
+      ],
+      "fuzzy": false
+    }
+  ],
   "separators": " ._-\t\r\n",
-  "substitutions": {"0":"o", "1":"i", "3":"e", "4":"a", "5":"s", "7":"t", "@":"a", "$":"s", "а":"a", "е":"e", "о":"o", "р":"p", "с":"c", "х":"x", "і":"i", "α":"a", "ο":"o"},
+  "substitutions": {
+    "0": "o",
+    "3": "e",
+    "4": "a",
+    "5": "s",
+    "7": "t",
+    "@": "a",
+    "$": "s",
+    "а": "a",
+    "е": "e",
+    "о": "o",
+    "р": "p",
+    "с": "c",
+    "х": "x",
+    "і": "i",
+    "α": "a",
+    "ο": "o",
+    "2": "z",
+    "ӏ": "l",
+    "ⅼ": "l",
+    "ρ": "p",
+    "ν": "v",
+    "ո": "n",
+    "η": "n",
+    "ι": "i",
+    "κ": "k",
+    "τ": "t",
+    "ϲ": "c",
+    "ζ": "z"
+  },
   "recipe": {
-    "anchors": ["pizza", "dough", "sauce"],
-    "ingredients": ["flour", "water", "yeast", "salt", "sugar", "oil", "tomato", "tomatoes", "cheese", "mozzarella", "basil"],
-    "actions": ["mix", "knead", "bake", "stir", "combine", "roll", "preheat", "simmer", "add"],
-    "sequences": ["first", "then", "next", "finally"],
+    "anchors": [
+      "pizza",
+      "dough",
+      "sauce"
+    ],
+    "ingredients": [
+      "flour",
+      "water",
+      "yeast",
+      "salt",
+      "sugar",
+      "oil",
+      "tomato",
+      "tomatoes",
+      "cheese",
+      "mozzarella",
+      "basil"
+    ],
+    "actions": [
+      "mix",
+      "knead",
+      "bake",
+      "stir",
+      "combine",
+      "roll",
+      "preheat",
+      "simmer"
+    ],
+    "sequences": [
+      "first",
+      "then",
+      "next",
+      "finally"
+    ],
     "quantity_pattern": "\\b\\d+(?:[.,/]\\d+)?\\s*(?:g|kg|ml|l|grams?|kilograms?|cups?|tablespoons?|teaspoons?|tbsp|tsp|liters?)\\b",
     "time_temperature_pattern": "\\b\\d+(?:[.,]\\d+)?\\s*(?:minutes?|mins?|hours?|hrs?|seconds?|degrees?|[cf])\\b|\\b\\d+\\s*°\\s*[cf]\\b"
+  },
+  "vocabulary_sources": [
+    "https://www.pizzanapoletana.org/it/ricetta_pizza_napoletana",
+    "https://www.pizzanapoletana.org/en/decalogo",
+    "https://www.wikidata.org/wiki/Q177",
+    "https://www.wikidata.org/wiki/Q1815560"
+  ],
+  "ambiguous_substitutions": {
+    "!": [
+      "i",
+      "l"
+    ],
+    "1": [
+      "i",
+      "l"
+    ],
+    "|": [
+      "i",
+      "l"
+    ]
   }
 }

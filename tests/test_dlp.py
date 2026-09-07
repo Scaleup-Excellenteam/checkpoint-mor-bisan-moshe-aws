@@ -69,3 +69,33 @@ def test_missing_vocabulary_fails_explicitly(tmp_path):
     path.write_text(json.dumps(rules), encoding='utf-8')
     with pytest.raises(ValueError, match='Configure protected_terms'):
         RuleDLPChecker(path)
+
+
+@pytest.mark.parametrize('text', ['pizza', 'piza', 'pizaz', 'pizzeria', 'pizzaiolo', 'calzone',
+    'P!ZZ@', 'p1zz@', 'p|zza', 'ca!zone', 'ca1zone', 'ca|zone', 'pіzzа', 'pιzzα',
+    'pіzzеrіа', 'p\u200bi\u200bz\u200bz\u200ba', 'p . i _ z - z a',
+    'ｐｉｚｚａ', 'pizzaiuoli', 'calzoni'])
+def test_production_vocabulary_and_evasions(text):
+    result = RuleDLPChecker().check('message', text)
+    assert result.action == 'block' and result.risk_score == 100
+
+
+@pytest.mark.parametrize('text', ['add the values', 'the weather', 'piazza', 'canzone',
+    'Margherita', 'marinara', 'flour', 'sauce', 'salt', 'hello!', 'calendar', 'pizzicato'])
+def test_production_false_positives(text):
+    assert RuleDLPChecker().check('message', text).action == 'allow'
+
+
+def test_every_configured_form_and_character_mapping():
+    rules = json.loads(Path('dlp_rules.json').read_text(encoding='utf-8-sig'))
+    checker = RuleDLPChecker()
+    substitutions = {symbol: [target] for symbol, target in rules['substitutions'].items()}
+    substitutions.update(rules['ambiguous_substitutions'])
+    for entry in rules['protected_terms']:
+        for form in [entry['term'], *entry['aliases'], *entry['abbreviations'], *entry['one_edit_variants']]:
+            assert checker.check('message', form).action == 'block', form
+            for symbol, targets in substitutions.items():
+                for target in targets:
+                    if target in form:
+                        evasion = form.replace(target, symbol)
+                        assert checker.check('message', evasion).action == 'block', evasion
