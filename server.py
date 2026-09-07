@@ -13,13 +13,13 @@ from dotenv import load_dotenv
 load_dotenv(Path(__file__).resolve().parent / ".env", override=False)
 
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
-import auth
-import database as db
-from dlp import RuleDLPChecker
-from local_llm import OllamaRecipeClassifier
-from security_contracts import MessageSecurityContext
-from security_policy import SecurityPolicy
-from url_security import RegexURLExtractor, VirusTotalURLReputationChecker
+from chat_system import auth
+from chat_system import database as db
+from chat_system.dlp import RuleDLPChecker
+from chat_system.local_llm import OllamaRecipeClassifier
+from chat_system.security_contracts import MessageSecurityContext
+from chat_system.security_policy import SecurityPolicy
+from chat_system.url_security import RegexURLExtractor, VirusTotalURLReputationChecker
 
 log = logging.getLogger("chat")
 

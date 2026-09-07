@@ -13,9 +13,9 @@ from urllib.error import HTTPError, URLError
 
 import pytest
 
-import local_llm
-from local_llm import OllamaRecipeClassifier
-from security_contracts import RecipeClassifier, SecurityDecision
+from chat_system import local_llm
+from chat_system.local_llm import OllamaRecipeClassifier
+from chat_system.security_contracts import RecipeClassifier, SecurityDecision
 
 
 def envelope(result=None, **fields):

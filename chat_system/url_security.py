@@ -58,7 +58,7 @@ from urllib.parse import urlsplit, urlunsplit
 
 import httpx
 
-from security_contracts import SecurityDecision
+from chat_system.security_contracts import SecurityDecision
 
 log = logging.getLogger("chat.url_security")
 

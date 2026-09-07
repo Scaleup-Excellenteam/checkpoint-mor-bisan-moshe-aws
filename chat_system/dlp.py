@@ -14,7 +14,7 @@ from pathlib import Path
 import re
 import unicodedata
 
-from security_contracts import (
+from chat_system.security_contracts import (
     ALLOW_MAX_SCORE, CONTEXT_WINDOW_SIZE, SecurityDecision, MessageSecurityContext,
     ProtectedField,
 )
@@ -44,7 +44,7 @@ def distance_one(a: str, b: str) -> bool:
 
 
 class RuleDLPChecker:
-    def __init__(self, rules_path: str | Path = Path(__file__).with_name('dlp_rules.json')):
+    def __init__(self, rules_path: str | Path = Path(__file__).resolve().parents[1] / 'config' / 'dlp_rules.json'):
         rules = json.loads(Path(rules_path).read_text(encoding='utf-8-sig'))
         if not rules['protected_terms']:
             raise ValueError('Configure protected_terms in dlp_rules.json before use')

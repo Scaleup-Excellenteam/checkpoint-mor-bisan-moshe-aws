@@ -17,7 +17,7 @@ No provider reason/details are copied into the final result, preventing leakage.
 from collections import deque
 from threading import RLock
 
-from security_contracts import (
+from chat_system.security_contracts import (
     ALLOW_MAX_SCORE, CONTEXT_WINDOW_SIZE, DeterministicDLPChecker,
     MessageSecurityContext, RecipeClassifier, SecurityDecision,
     URLExtractor, URLReputationChecker,

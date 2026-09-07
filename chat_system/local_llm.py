@@ -12,7 +12,7 @@ from typing import Sequence
 from urllib import request
 from urllib.parse import urlsplit, urlunsplit
 
-from security_contracts import SecurityDecision
+from chat_system.security_contracts import SecurityDecision
 
 
 _MAX_RESPONSE_BYTES = 64 * 1024

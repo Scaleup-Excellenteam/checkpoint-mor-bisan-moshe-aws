@@ -1,6 +1,6 @@
 # Local recipe-context classifier (Person 2)
 
-`local_llm.OllamaRecipeClassifier()` implements the frozen synchronous
+`chat_system.local_llm.OllamaRecipeClassifier()` implements the frozen synchronous
 `RecipeClassifier.classify(text: str, recent_attempts: Sequence[str])` contract.
 It returns the existing `SecurityDecision`; it adds no server or policy integration.
 
@@ -78,8 +78,8 @@ $env:LOCAL_LLM_TIMEOUT_SECONDS = "30"
 
 @'
 from dataclasses import asdict
-from local_llm import OllamaRecipeClassifier
-from security_contracts import RecipeClassifier
+from chat_system.local_llm import OllamaRecipeClassifier
+from chat_system.security_contracts import RecipeClassifier
 
 classifier: RecipeClassifier = OllamaRecipeClassifier()
 decision = classifier.classify(

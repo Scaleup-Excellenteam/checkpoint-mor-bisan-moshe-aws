@@ -2,13 +2,13 @@ import json
 from pathlib import Path
 
 import pytest
-from dlp import RuleDLPChecker, distance_one, normalize
-from security_contracts import MessageSecurityContext
+from chat_system.dlp import RuleDLPChecker, distance_one, normalize
+from chat_system.security_contracts import MessageSecurityContext
 
 
 @pytest.fixture
 def checker(tmp_path):
-    rules = json.loads(Path('dlp_rules.json').read_text(encoding='utf-8-sig'))
+    rules = json.loads((Path(__file__).resolve().parents[1] / 'config' / 'dlp_rules.json').read_text(encoding='utf-8-sig'))
     # Synthetic protected vocabulary, not an invented production policy.
     rules['protected_terms'] = [dict(term='moonstone', aliases=['lunar gem'],
                                      abbreviations=['mns'], one_edit_variants=['moonstnoe'], fuzzy=True)]
@@ -63,7 +63,7 @@ def test_distance_and_unicode():
 
 
 def test_missing_vocabulary_fails_explicitly(tmp_path):
-    rules = json.loads(Path('dlp_rules.json').read_text(encoding='utf-8-sig'))
+    rules = json.loads((Path(__file__).resolve().parents[1] / 'config' / 'dlp_rules.json').read_text(encoding='utf-8-sig'))
     rules['protected_terms'] = []
     path = tmp_path / 'rules.json'
     path.write_text(json.dumps(rules), encoding='utf-8')
@@ -87,7 +87,7 @@ def test_production_false_positives(text):
 
 
 def test_every_configured_form_and_character_mapping():
-    rules = json.loads(Path('dlp_rules.json').read_text(encoding='utf-8-sig'))
+    rules = json.loads((Path(__file__).resolve().parents[1] / 'config' / 'dlp_rules.json').read_text(encoding='utf-8-sig'))
     checker = RuleDLPChecker()
     substitutions = {symbol: [target] for symbol, target in rules['substitutions'].items()}
     substitutions.update(rules['ambiguous_substitutions'])

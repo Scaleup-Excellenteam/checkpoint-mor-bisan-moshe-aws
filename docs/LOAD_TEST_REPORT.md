@@ -139,7 +139,7 @@ connect and join. The larger workload is optional and is not added to normal pyt
 Final full suite: **349 passed in 35.78 s**. Focused results: DLP/policy 117 passed,
 local classifier 134 passed, URL module 66 passed, concurrency 1 passed. New security
 integration tests: 10 passed in 21.59 s. Compile checks passed. Source/documentation whitespace checks passed; the inherited
-`URL_SECURITY_INTEGRATION.patch` retains unified-diff context-marker spaces, which
+`docs/reference/URL_SECURITY_INTEGRATION.patch` retains unified-diff context-marker spaces, which
 Git flags as trailing whitespace. The historical patch is preserved unchanged.
 The full suite includes real WebSocket servers and client/CLI flows; model/provider
 responses are faked. No developer database or external credentials are needed.

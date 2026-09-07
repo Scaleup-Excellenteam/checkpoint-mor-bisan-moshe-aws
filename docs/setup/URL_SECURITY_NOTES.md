@@ -1,8 +1,12 @@
 # URL Reputation (Person 3) — setup, configuration and integration notes
 
-Module: `url_security.py`. Tests: `tests/test_url_security.py`. Implements the
+All file paths and executable commands below are relative to the repository root.
+These component notes retain the original implementation context; the
+[root README](../../README.md) documents the completed server integration and .env loading.
+
+Module: `chat_system/url_security.py`. Tests: `tests/test_url_security.py`. Implements the
 frozen `URLExtractor` and `URLReputationChecker` protocols from
-`security_contracts.py`; decisions follow `COMMON_SECURITY_DECISIONS.md`.
+`chat_system/security_contracts.py`; decisions follow `COMMON_SECURITY_DECISIONS.md`.
 
 ## Configuration (environment, read at process start)
 
@@ -55,7 +59,7 @@ nothing on record — not that the site is genuine.
   the lock and re-check membership before saving.
 - `evaluate_message(text)` is a convenience aggregate (worst decision wins; no
   URLs → allow/`no_urls`). `MessageSecurityPolicy` may call `check` per URL instead.
-- `URL_SECURITY_INTEGRATION.patch` holds the pre-contract server/CLI/README wiring
+- `docs/reference/URL_SECURITY_INTEGRATION.patch` holds the pre-contract server/CLI/README wiring
   (two-phase send, readable CLI errors, log lines). It targets the *old* async dict
   API and is kept only as a reference for the integrator; do not apply it as-is.
 - `requirements.txt` gained `httpx` (needed by this module). Flagged, since that
@@ -88,6 +92,6 @@ branch — all verification uses mocked transports.
 ```powershell
 ./.venv/Scripts/python.exe -m pytest -q tests/test_url_security.py
 ./.venv/Scripts/python.exe -m pytest -q
-./.venv/Scripts/python.exe -m compileall -q url_security.py tests/test_url_security.py
+./.venv/Scripts/python.exe -m compileall -q chat_system/url_security.py tests/test_url_security.py
 git diff --check
 ```

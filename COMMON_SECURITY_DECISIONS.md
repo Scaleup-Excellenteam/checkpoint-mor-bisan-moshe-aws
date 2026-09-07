@@ -1,6 +1,6 @@
 # Shared Security Decisions
 
-This document and `security_contracts.py` must be merged before parallel branches are created. Agents may read all repository files but must edit only their assigned files.
+This document and `chat_system/security_contracts.py` must be merged before parallel branches are created. Agents may read all repository files but must edit only their assigned files.
 
 ## Policy
 
@@ -24,11 +24,11 @@ For username and room-name validation, run only the applicable deterministic DLP
 
 ## Ownership
 
-- Person 1: `dlp.py`, `dlp_rules.json`, `security_policy.py`, `tests/test_dlp.py`, `tests/test_security_policy.py`.
-- Person 2: `local_llm.py`, `tests/test_local_llm.py`, and local-model setup notes.
-- Person 3: `url_security.py`, `tests/test_url_security.py`, URL cache/provider configuration notes. Preserve existing URL work.
-- Person 4: `scripts/load_test.py`, `tests/test_concurrency.py`, `LOAD_TEST_REPORT.md`.
-- Nobody edits `security_contracts.py`, `server.py`, `client.py`, `cli.py`, `database.py`, `auth.py`, shared README, or another owner's files during parallel work.
+- Person 1: `chat_system/dlp.py`, `config/dlp_rules.json`, `chat_system/security_policy.py`, `tests/test_dlp.py`, `tests/test_security_policy.py`.
+- Person 2: `chat_system/local_llm.py`, `tests/test_local_llm.py`, and local-model setup notes.
+- Person 3: `chat_system/url_security.py`, `tests/test_url_security.py`, URL cache/provider configuration notes. Preserve existing URL work.
+- Person 4: `scripts/load_test.py`, `tests/test_concurrency.py`, `docs/LOAD_TEST_REPORT.md`.
+- Nobody edits `chat_system/security_contracts.py`, `server.py`, `client.py`, `cli.py`, `chat_system/database.py`, `chat_system/auth.py`, shared README, or another owner's files during parallel work.
 - Final server/client integration happens only after all branches are reviewed. One designated integrator performs it.
 
 ## Branch and Collaboration Rules

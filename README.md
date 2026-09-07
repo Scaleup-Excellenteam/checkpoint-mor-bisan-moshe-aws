@@ -5,6 +5,34 @@ selected-room live delivery, and server-side content and URL checks. Only an
 allowed message is stored or broadcast. History and live messages show the stored
 normalized sender username.
 
+## Repository layout
+
+```text
+server.py, client.py, cli.py   # Stable server and CLI entry points
+chat_system/                  # Authentication, database, security modules/contracts
+config/                       # schema.sql and dlp_rules.json
+scripts/                      # Offline smoke and load tools
+tests/                        # Unit, integration and configuration tests
+docs/
+  LOAD_TEST_REPORT.md
+  setup/                      # Ollama and URL setup notes
+  reference/                  # Historical URL integration patch (do not apply)
+README.md, COMMON_SECURITY_DECISIONS.md
+requirements.txt, .env.example, .gitignore
+```
+
+The root retains the authoritative security decisions and launch commands.
+Implementation imports use `chat_system`; no duplicate modules or wrappers are
+kept. Rules and schema resolve from the project path regardless of working
+directory. `.env` and the default `chat.db` remain in the project root; the default
+log and relative path overrides still resolve against the working directory.
+
+See the [local model setup](docs/setup/LOCAL_LLM_SETUP.md),
+[URL setup notes](docs/setup/URL_SECURITY_NOTES.md),
+[load report](docs/LOAD_TEST_REPORT.md), and
+[historical reference patch](docs/reference/URL_SECURITY_INTEGRATION.patch).
+All executable commands below run from the repository root.
+
 ## Install and run
 
 Python 3.12 is tested (Python 3.10+ required). From the repository in PowerShell:
@@ -18,7 +46,7 @@ notepad .env
 ```
 
 If `python` resolves to the Windows Store stub, use an installed Python executable
-for the first command. Startup initializes `chat.db` from `schema.sql`; no separate
+for the first command. Startup initializes `chat.db` from `config/schema.sql`; no separate
 initialization command is needed. `CHAT_DATABASE` and `CHAT_LOG` override `chat.db`
 and `chat.log`. Run one server process/worker because sessions, room presence,
 security windows and reputation caches are in memory.
@@ -60,7 +88,7 @@ directory; use absolute paths if launching elsewhere. Never use blank path value
 
 | Variable | Required | Default | Purpose |
 | --- | --- | --- | --- |
-| `CHAT_DATABASE` | No | `chat.db` beside `database.py` | SQLite file; initialized at startup |
+| `CHAT_DATABASE` | No | `chat.db` in the project root | SQLite file; initialized at startup |
 | `CHAT_LOG` | No | `chat.log` in working directory | Server log file |
 | `LOCAL_LLM_ENDPOINT` | No | `http://127.0.0.1:11434/api/generate` | Full Ollama URL, including API path; no separate base-URL variable |
 | `LOCAL_LLM_MODEL` | No | `qwen2.5:1.5b` | Installed local model |
@@ -119,11 +147,11 @@ For message requests:
    or delivery.
 
 Signup and room creation run basic validation and deterministic name checks
-before creating database records. Username normalization stays in `auth.py`;
+before creating database records. Username normalization stays in `chat_system/auth.py`;
 room names retain the existing nonempty, already-trimmed rule. Names do not use
 recipe scoring, LLM or URL checks. Existing accounts/rooms are not migrated.
 
-`security_policy.py` holds up to ten prior attempted messages per `(user_id,
+`chat_system/security_policy.py` holds up to ten prior attempted messages per `(user_id,
 room_id)`, including blocked attempts, and evaluates them with the current text.
 These security-only windows never enter SQLite. Per-user/room locks preserve their
 order while unrelated windows can proceed during slow checks. The count of
@@ -141,7 +169,7 @@ consumers can be disconnected.
 
 ## DLP and local-model setup
 
-Only **pineapple** and its configured aliases/typos/evasions in `dlp_rules.json`
+Only **pineapple** and its configured aliases/typos/evasions in `config/dlp_rules.json`
 receive deterministic score 100 and immediate blocking. Normal pizza discussion
 is allowed. Recipe clues accumulate across the window: pizza/dough/sauce +10;
 distinct ingredients +5 each (cap 20); quantity/unit +20; preparation +15;
@@ -172,7 +200,7 @@ The teammate's adapter accepts only loopback HTTP(S), disables redirects/proxies
 requires strict JSON allow/block output, and preserves its configured socket
 timeout. CPU/cold starts can exceed it. Configure the Ollama process with cloud
 features disabled; localhost alone does not establish how a runtime executes a
-model. See `LOCAL_LLM_SETUP.md` for manual adapter checks and limitations.
+model. See `docs/setup/LOCAL_LLM_SETUP.md` for manual adapter checks and limitations.
 
 Missing/unavailable models, timeout or malformed/unresolved output fail closed.
 With no model installed the chat still starts: ordinary low-score text works,
@@ -198,9 +226,9 @@ suspicious, unknown/stale results, and unsupported hosts return review, which th
 final policy conservatively blocks. A known malicious URL takes precedence over
 other URL failures; any failure otherwise prevents delivery.
 
-`URL_SECURITY_NOTES.md` lists the module's other settings. Its legacy
+`docs/setup/URL_SECURITY_NOTES.md` lists the module's other settings. Its legacy
 `evaluate_message()` helper and URL limit are not used by the integrated policy;
-the policy checks every URL via `check()`. `URL_SECURITY_INTEGRATION.patch` is a
+the policy checks every URL via `check()`. `docs/reference/URL_SECURITY_INTEGRATION.patch` is a
 historical reference targeting an old API: **do not apply it**. Its preserved
 unified-diff context-marker spaces produce known Git whitespace warnings; source
 and documentation whitespace checks exclude this reference artifact.
@@ -252,7 +280,7 @@ $env:PYTHON_DOTENV_DISABLED = "1"
 ./.venv/Scripts/python.exe -m pytest -q tests/test_dlp.py tests/test_security_policy.py tests/test_local_llm.py tests/test_url_security.py
 ./.venv/Scripts/python.exe -m pytest -q
 ./.venv/Scripts/python.exe -m pytest -q tests/test_security_integration.py
-./.venv/Scripts/python.exe -m compileall -q auth.py database.py server.py client.py cli.py dlp.py security_policy.py local_llm.py url_security.py security_contracts.py tests scripts
+./.venv/Scripts/python.exe -m compileall -q chat_system server.py client.py cli.py tests scripts
 ./.venv/Scripts/python.exe scripts/security_smoke.py
 ./.venv/Scripts/python.exe scripts/load_test.py --clients 3 --messages 2
 ./.venv/Scripts/python.exe scripts/load_test.py --clients 8 --messages 10
@@ -274,7 +302,7 @@ With a configured model, inspect its safe decision; without one, expect
 `security_check_unavailable`. Use the offline smoke for repeatable safe/malicious
 URL demonstrations without opening URLs or consuming API quota. Select another
 room on a third client, verify isolation, leave/rejoin and reconnect, and check
-`/health` during pending checks. See `LOAD_TEST_REPORT.md` for measured results.
+`/health` during pending checks. See `docs/LOAD_TEST_REPORT.md` for measured results.
 
 Remaining limits: in-memory sessions without expiry, unpaginated history,
 unencrypted lab `ws://`, manually configured real services, bounded per-window
@@ -291,8 +319,8 @@ means configuration/connectivity/quota still needs attention.
 ollama list
 @'
 import server  # Loads the root .env before the real adapters.
-from local_llm import OllamaRecipeClassifier
-from url_security import VirusTotalURLReputationChecker
+from chat_system.local_llm import OllamaRecipeClassifier
+from chat_system.url_security import VirusTotalURLReputationChecker
 llm = OllamaRecipeClassifier().classify("Mix 200 g flour and bake for 20 minutes.", [])
 print(llm.action, llm.reason_code, llm.risk_score)
 checker = VirusTotalURLReputationChecker()

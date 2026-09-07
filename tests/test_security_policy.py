@@ -3,9 +3,9 @@ from pathlib import Path
 
 import pytest
 
-from dlp import RuleDLPChecker
-from security_contracts import MessageSecurityContext, SecurityDecision
-from security_policy import SecurityPolicy
+from chat_system.dlp import RuleDLPChecker
+from chat_system.security_contracts import MessageSecurityContext, SecurityDecision
+from chat_system.security_policy import SecurityPolicy
 
 
 def decision(action='allow', score=0, source='rules', reason='test'):
@@ -114,7 +114,7 @@ def test_window_isolation_cap_and_blocked_attempts():
 
 def test_real_checker_split_attempts(tmp_path):
     llm, urls = Classifier(), URLs()
-    rules = json.loads(Path('dlp_rules.json').read_text(encoding='utf-8-sig'))
+    rules = json.loads((Path(__file__).resolve().parents[1] / 'config' / 'dlp_rules.json').read_text(encoding='utf-8-sig'))
     rules['protected_terms'] = [{'term': 'moonstone'}]
     path = tmp_path / 'rules.json'
     path.write_text(json.dumps(rules), encoding='utf-8')

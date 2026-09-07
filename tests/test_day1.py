@@ -11,8 +11,8 @@ import urllib.request
 
 import pytest
 import websockets
-import auth
-import database as db
+from chat_system import auth
+from chat_system import database as db
 from client import ChatClient
 from scripts.load_test import stop_process
 

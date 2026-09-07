@@ -12,11 +12,11 @@ import httpx
 import pytest
 import uvicorn
 
-import auth
-import database as db
-import local_llm
+from chat_system import auth
+from chat_system import database as db
+from chat_system import local_llm
 import server
-import url_security
+from chat_system import url_security
 from client import ChatClient
 
 

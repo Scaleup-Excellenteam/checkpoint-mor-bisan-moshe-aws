@@ -15,8 +15,8 @@ def test_server_environment(tmp_path, mode):
     project.mkdir()
     for source in root.glob("*.py"):
         shutil.copy2(source, project / source.name)
-    for name in ("schema.sql", "dlp_rules.json"):
-        shutil.copy2(root / name, project / name)
+    for name in ("chat_system", "config"):
+        shutil.copytree(root / name, project / name, ignore=shutil.ignore_patterns("__pycache__"))
     env = {key: value for key, value in os.environ.items()
            if not key.startswith(("CHAT_", "LOCAL_LLM_", "URL_REPUTATION_", "VIRUSTOTAL_", "PYTHON_DOTENV_"))}
     env["PYTHONPATH"] = str(project)
@@ -42,8 +42,8 @@ def forbidden(*args, **kwargs):
     raise AssertionError("External network must not be contacted")
 socket.create_connection = forbidden
 import server
-import local_llm
-import url_security
+from chat_system import local_llm
+from chat_system import url_security
 expected = EXPECTED
 model, endpoint, timeout = local_llm._configuration()
 assert (model, timeout) == expected[:2]

@@ -10,8 +10,8 @@ import time
 import httpx
 import pytest
 
-import url_security as us
-from security_contracts import SecurityDecision
+from chat_system import url_security as us
+from chat_system.security_contracts import SecurityDecision
 
 
 @pytest.fixture(autouse=True)
