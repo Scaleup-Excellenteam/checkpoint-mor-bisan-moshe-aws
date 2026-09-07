@@ -1,11 +1,11 @@
 :root {
   font-family:Inter,ui-sans-serif,system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;
-  color:#18362e;
-  background:#f4f6f2;
+  color:#43252b;
+  background:#faf4e9;
   font-synthesis:none;
-  --green:#226b50;
-  --line:#dce4dc;
-  --muted:#60736a
+  --accent:#923e28;
+  --line:#e5d5c3;
+  --muted:#786356
 }
 
 * {
@@ -23,7 +23,7 @@ button,input,textarea {
 button {
   border:1px solid transparent;
   border-radius:8px;
-  background:var(--green);
+  background:var(--accent);
   color:white;
   padding:10px 16px;
   font-weight:600;
@@ -40,18 +40,18 @@ button:disabled {
 }
 
 .secondary {
-  background:white;
-  color:#284e3f;
+  background:#fffdf8;
+  color:#702d38;
   border-color:var(--line)
 }
 
 input,textarea {
   width:100%;
-  border:1px solid #bacac0;
+  border:1px solid #cdb7a1;
   border-radius:8px;
   padding:11px 12px;
-  color:#18362e;
-  background:white
+  color:#43252b;
+  background:#fffdf8
 }
 
 textarea {
@@ -61,11 +61,11 @@ textarea {
 }
 
 input:disabled,textarea:disabled {
-  background:#f2f4f0
+  background:#f1e9de
 }
 
 input:focus-visible,textarea:focus-visible,button:focus-visible,a:focus-visible {
-  outline:3px solid #92c9ae;
+  outline:3px solid #cf7539;
   outline-offset:3px
 }
 
@@ -105,7 +105,7 @@ small {
   align-items:center;
   justify-content:space-between;
   padding:0 5vw;
-  background:#fafbf8;
+  background:#58232e;
   gap:20px
 }
 
@@ -114,34 +114,34 @@ small {
   align-items:center;
   gap:10px;
   font-size:1.4rem;
-  font-weight:750;
-  color:#18362e;
+  font-weight:850;
+  color:#fff4dd;
   text-decoration:none;
-  letter-spacing:-.7px
+  letter-spacing:2px
 }
 
 .mark {
   display:grid;
   place-items:center;
-  background:var(--green);
-  color:#fff;
-  width:34px;
-  height:38px;
-  border-radius:10px 10px 16px 16px;
-  font-size:1.2rem
+  width:38px;
+  height:40px;
+  transform:rotate(-12deg)
 }
 
 .brand-note {
   font-size:.6rem;
   letter-spacing:1.8px;
   margin-left:12px;
-  font-weight:600;
-  color:var(--muted)
+  font-weight:650;
+  color:#f6bc62;
+  border:1px solid #b57661;
+  border-radius:4px;
+  padding:5px 7px
 }
 
 #identity {
   font-size:.8rem;
-  color:var(--muted);
+  color:#edcdbf;
   overflow-wrap:anywhere
 }
 
@@ -169,7 +169,7 @@ main {
 }
 
 .badge {
-  background:#e5e9e4;
+  background:#eee2d1;
   border-radius:30px;
   padding:8px 13px;
   white-space:nowrap;
@@ -193,15 +193,16 @@ main {
   padding:12px 16px;
   border:1px solid var(--line);
   border-radius:8px;
-  background:#fafcf8;
+  background:#fff8ed;
   font-size:.85rem;
   overflow-wrap:anywhere
 }
 
 .notice.error {
-  color:#923b32;
-  background:#fff1ed;
-  border-color:#eac1b8
+  color:#972c36;
+  background:#fff0ed;
+  border-color:#e5b3ad;
+  border-left:4px solid #a9323e
 }
 
 .welcome {
@@ -217,7 +218,7 @@ main {
   font-size:.65rem;
   font-weight:700;
   letter-spacing:2px;
-  color:var(--green)
+  color:var(--accent)
 }
 
 h1 {
@@ -228,7 +229,7 @@ h1 {
 }
 
 h1 span {
-  color:#648373
+  color:#a44929
 }
 
 .welcome-copy>p {
@@ -243,7 +244,7 @@ h1 span {
 }
 
 .feature span {
-  color:var(--green);
+  color:var(--accent);
   margin-right:10px
 }
 
@@ -251,13 +252,13 @@ h1 span {
   padding:30px;
   border:1px solid var(--line);
   border-radius:18px;
-  background:#fff;
-  box-shadow:0 12px 45px #23493208
+  background:#fffdf8;
+  box-shadow:0 12px 45px #6f302512
 }
 
 .tabs {
   display:flex;
-  background:#f0f3ed;
+  background:#f3e9da;
   border-radius:8px;
   padding:4px;
   margin-bottom:26px
@@ -270,9 +271,9 @@ h1 span {
 }
 
 .tabs button[aria-pressed=true] {
-  background:white;
-  color:var(--green);
-  box-shadow:0 1px 4px #18362e12
+  background:#fffdf8;
+  color:var(--accent);
+  box-shadow:0 1px 4px #43252b12
 }
 
 .card>button {
@@ -287,11 +288,13 @@ h1 span {
   border:1px solid var(--line);
   border-radius:14px;
   overflow:hidden;
-  background:white
+  background:#fffdf8;
+  box-shadow:0 12px 36px #6f30250a
 }
 
 .sidebar {
-  background:#f9faf6;
+  background:#58232e;
+  color:#fff4e7;
   border-right:1px solid var(--line);
   padding:22px
 }
@@ -342,8 +345,8 @@ h1 span {
 }
 
 .room.selected {
-  background:#e6efe5;
-  border-color:#c5d9c8
+  background:#773846;
+  border-color:#c98360
 }
 
 .room-name {
@@ -419,7 +422,7 @@ h1 span {
 
 .message-body {
   padding:12px 16px;
-  background:#f0f3ed;
+  background:#f3e9da;
   border-radius:0 12px 12px;
   white-space:pre-wrap;
   overflow-wrap:anywhere;
@@ -428,12 +431,12 @@ h1 span {
 }
 
 .own .message-body {
-  background:#e2efe6;
+  background:#f8dfc4;
   border-radius:12px 0 12px 12px
 }
 
 .empty {
-  color:#526e60;
+  color:#795343;
   text-align:center;
   margin:30px;
   line-height:1.9
@@ -446,7 +449,8 @@ h1 span {
 
 .composer {
   padding:0 22px 20px;
-  border-top:1px solid var(--line)
+  border-top:1px solid var(--line);
+  background:#fff9f0
 }
 
 .composer-footer {
@@ -475,6 +479,62 @@ footer {
 
 footer span {
   letter-spacing:0
+}
+
+
+.sidebar .muted,
+.sidebar .room-meta {
+  color:#ecd2c5
+}
+
+.sidebar form {
+  border-color:#8c5560
+}
+
+.sidebar .secondary {
+  background:#6b303d;
+  color:#fff2df;
+  border-color:#af756c
+}
+
+.sidebar button:not(.secondary) {
+  background:#f3ae66;
+  color:#48212b
+}
+
+.sidebar input {
+  background:#fff8ec
+}
+
+.room:not(.selected):hover {
+  background:#652c38
+}
+
+.room.selected {
+  box-shadow:inset 3px 0 #f3ae66
+}
+
+button {
+  box-shadow:0 2px 4px #62291d0a
+}
+
+button:hover:not(:disabled) {
+  box-shadow:0 3px 9px #62291d1c
+}
+
+::placeholder {
+  color:#836c5c;
+  opacity:1
+}
+
+::selection {
+  background:#f6d2a5;
+  color:#48212b
+}
+
+#send-status {
+  color:#894325;
+  font-weight:550
 }
 
 [hidden] {

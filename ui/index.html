@@ -5,12 +5,12 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="referrer" content="no-referrer">
   <meta http-equiv="Content-Security-Policy" content="default-src 'self'; connect-src ws: wss:; script-src 'self'; style-src 'self'; img-src 'self'; object-src 'none'; base-uri 'none'; form-action 'none'">
-  <title>Checkpoint · Secure chat</title>
+  <title>PIZZA | Top Secret Chat</title>
   <link rel="stylesheet" href="theme.css">
   <script type="module" src="app.mjs"></script>
 </head>
 <body>
-  <header class="topbar"><a class="brand" href="./"><span class="mark" aria-hidden="true">C</span> checkpoint<span class="brand-note">SECURE CHAT</span></a><span id="identity">Your conversations, connected.</span></header>
+  <header class="topbar"><a class="brand" href="./"><span class="mark" aria-hidden="true"><svg viewBox="0 0 40 40" width="36" height="36" fill="none"><path d="M7 9 20 35 33 9Q20 2 7 9Z" fill="#F6BC62"/><path d="M7 9Q20 2 33 9" stroke="#E78032" stroke-width="6" stroke-linecap="round"/><circle cx="16" cy="15" r="3" fill="#792B36"/><circle cx="25" cy="14" r="2.5" fill="#792B36"/><circle cx="20" cy="24" r="2.5" fill="#792B36"/></svg></span> PIZZA<span class="brand-note">TOP SECRET</span></a><span id="identity">Your conversations, connected.</span></header>
   <main>
     <section class="connection" aria-label="Server connection">
       <span id="connection-status" class="badge" role="status">Disconnected</span>
@@ -19,7 +19,7 @@
     </section>
     <div id="notice" class="notice" role="status" aria-live="polite">Connect to your chat server to get started.</div>
     <section id="auth-view" class="welcome">
-      <div class="welcome-copy"><span class="eyebrow">A SPACE FOR YOUR TEAM</span><h1>Good conversations.<br><span>A little more secure.</span></h1><p>Find your room, catch up, and keep the conversation going. Messages are checked by your server before they’re shared.</p><div class="feature"><span aria-hidden="true">✓</span> Live conversations in your selected room</div><div class="feature"><span aria-hidden="true">✓</span> Shared history, ready when you return</div></div>
+      <div class="welcome-copy"><span class="eyebrow">SLICE. CHAT. REPEAT.</span><h1>Good Pizza<br><span>Stays Secret.</span></h1><p>Find your room, catch up, and keep the conversation going. Messages are checked by your server before they’re shared.</p><div class="feature"><span aria-hidden="true">✓</span> Live conversations in your selected room</div><div class="feature"><span aria-hidden="true">✓</span> Shared history, ready when you return</div></div>
       <form id="auth-form" class="card" autocomplete="off">
         <div class="tabs" aria-label="Account action"><button id="login-tab" type="button" aria-pressed="true">Log in</button><button id="signup-tab" type="button" aria-pressed="false">Sign up</button></div>
         <h2 id="auth-title">Welcome back</h2><p id="auth-description" class="muted">Log in to join the conversation.</p>
@@ -30,7 +30,7 @@
     </section>
     <section id="chat-view" class="workspace" hidden>
       <aside class="sidebar"><div class="section-heading"><h2>Rooms</h2><button id="refresh-rooms" type="button" class="secondary">Refresh</button></div><p class="muted">Join to become a member. Select to receive live messages.</p>
-        <form id="room-form"><label for="room-name">Room name</label><input id="room-name" required placeholder="e.g. Design studio" autocomplete="off"><div class="button-row"><button type="submit" data-action="create_group">Create</button><button type="submit" class="secondary" data-action="join_group">Join</button></div></form>
+        <form id="room-form"><label for="room-name">Room name</label><input id="room-name" required placeholder="e.g. The pizza club" autocomplete="off"><div class="button-row"><button type="submit" data-action="create_group">Create</button><button type="submit" class="secondary" data-action="join_group">Join</button></div></form>
         <p id="rooms-empty" class="muted">No rooms yet. Create the first one.</p><ul id="rooms" aria-label="Public rooms"></ul>
       </aside>
       <section class="conversation" aria-label="Conversation"><div class="conversation-header"><div><span class="eyebrow">CURRENT CONVERSATION</span><h2 id="room-title">Select a room</h2><p id="room-subtitle" class="muted">Choose a room from the sidebar to get started.</p></div><div class="button-row"><button id="history" type="button" class="secondary" disabled>Refresh history</button><button id="leave" type="button" class="secondary" disabled>Leave room</button></div></div>
@@ -38,6 +38,6 @@
         <form id="message-form" class="composer"><label for="message">Message</label><textarea id="message" rows="3" placeholder="Write something to your room…" disabled></textarea><div class="composer-footer"><span id="send-status" role="status">Messages are checked before delivery.</span><button id="send" type="submit" disabled>Send message <span aria-hidden="true">↗</span></button></div></form>
       </section>
     </section>
-  </main><footer>CHECKPOINT <span>Stay connected. Share thoughtfully.</span></footer>
+  </main><footer>PIZZA / TOP SECRET <span>Pizza brings people together.</span></footer>
 </body>
 </html>
