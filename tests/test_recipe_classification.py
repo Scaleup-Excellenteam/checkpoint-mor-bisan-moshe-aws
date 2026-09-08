@@ -85,10 +85,14 @@ def test_prompt_examples_and_complete_or_split_recipe_without_keyword(monkeypatc
     def fake(endpoint, payload, timeout):
         calls.append(json.loads(payload['prompt']))
         prompt = payload['system']
-        for phrase in ('chocolate cake', 'No pizza keyword is required', 'recipe exists',
+        for phrase in ('High risk requires BOTH evidence', 'If either is absent',
+                       'Allow unrelated recipes and their cooking instructions',
+                       'No pizza keyword is required', 'recipe exists',
                        'current message', '0-29 means allow', '30-99 means block', 'score 85', 'score 90'):
             # Existing wording describes mentioning that a recipe exists.
             assert phrase in prompt
+        assert 'chocolate' not in prompt.lower()
+        assert 'cake' not in prompt.lower()
         return model_reply('block', 85)
     monkeypatch.setattr(local_llm, '_call_model', fake)
     policy = SecurityPolicy(RuleDLPChecker(), local_llm.OllamaRecipeClassifier(), NoURLs(), NoURLs())

@@ -103,7 +103,7 @@ def test_prompt_scope_and_current_context_with_mocked_model(monkeypatch, text, a
     # Validates prompt and plumbing, not real-model semantic accuracy.
     def model(endpoint, payload, timeout):
         prompt = payload['system']
-        for phrase in ('current text', 'pizza recipe', 'chocolate cake', 'neutral current message',
+        for phrase in ('current text', 'pizza recipe', 'Allow unrelated recipes', 'neutral current message',
                        'ordinary pizza discussion', 'short current fragments'):
             assert phrase in prompt
         assert json.loads(payload['prompt']) == {'text': text, 'recent_attempts': ['pizza 200 g flour mix']}
