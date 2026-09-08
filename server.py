@@ -88,6 +88,12 @@ def security_result(decision, operation, user=None, room=None):
 
 def execute(request):
     action = request["action"]
+    if action == "logout":
+        token = request.get("token")
+        if token is not None and not isinstance(token, str):
+            return error("invalid_request"), None
+        user = auth.validate_session(token) if token else None
+        return auth.logout(token), user
     if action in ("signup", "login"):
         if not all(isinstance(request.get(k), str) for k in ("username", "password")):
             return error("invalid_request"), None
@@ -182,6 +188,7 @@ async def handle_send(ws, state, request):
             event = {"type": "event", "action": "room_message", "room_name": room["room_name"], **result}
             for peer, recipient in list(app.state.clients.items()):
                 if (recipient["user"] is not None
+                        and auth.validate_session(recipient["token"]) == recipient["user"]
                         and recipient["selected_room"] == room["room_id"]
                         and await asyncio.to_thread(db.is_active_member, recipient["user"], room["room_id"])):
                     enqueue(peer, recipient, event)
@@ -210,7 +217,7 @@ def enqueue(ws, state, message):
 @app.websocket("/ws")
 async def websocket_endpoint(ws: WebSocket):
     await ws.accept()
-    state = {"user": None, "selected_room": None, "queue": asyncio.Queue(maxsize=256)}
+    state = {"user": None, "token": None, "selected_room": None, "queue": asyncio.Queue(maxsize=256)}
     state["writer"] = asyncio.create_task(writer(ws, state["queue"]))
     app.state.clients[ws] = state
     log.info("connection_open peer=%s", ws.client)
@@ -246,10 +253,15 @@ async def websocket_endpoint(ws: WebSocket):
                 # Serialize state transitions and recipient snapshots, never socket I/O.
                 async with app.state.operations:
                     result, user = await asyncio.to_thread(execute, request)
-                    if user is not None:
+                    if action == "logout" and result["ok"]:
+                        for recipient in app.state.clients.values():
+                            if recipient is state or recipient["token"] == request.get("token"):
+                                recipient["user"] = recipient["token"] = recipient["selected_room"] = None
+                    elif user is not None:
                         if state["user"] != user:
                             state["selected_room"] = None
                         state["user"] = user
+                        state["token"] = result.get("token", request.get("token"))
                     if result["ok"]:
                         if action in {"create_group", "join_group", "select_room"}:
                             state["selected_room"] = result["room_id"]

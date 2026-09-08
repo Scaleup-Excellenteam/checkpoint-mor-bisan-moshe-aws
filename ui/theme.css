@@ -8,6 +8,14 @@
   --muted:#786356
 }
 
+.notice.contextual {
+  width:100%;
+  margin:12px 0;
+  overflow-wrap:anywhere;
+}
+
+#logout { margin-left:auto }
+
 * {
   box-sizing:border-box
 }

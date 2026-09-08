@@ -20,15 +20,14 @@ def login(page, name):
 
 def register(page, ui_address, uri, name):
     page.goto(ui_address)
-    playwright.expect(page.locator('#address')).to_have_value(uri)
+    assert page.locator('#address, #connect, #disconnect').count() == 0
     playwright.expect(page.locator('#health-status')).to_have_text('Server online')
-    page.locator('#connect').click()
     playwright.expect(page.locator('#connection-status')).to_have_text('Connected')
     page.locator('#signup-tab').click()
     page.locator('#username').fill(name)
     page.locator('#password').fill('Password1')
     page.locator('#auth-submit').click()
-    playwright.expect(page.locator('#notice')).to_have_text('Account created. Log in with your new account.')
+    playwright.expect(page.locator('#auth-notice')).to_have_text('Account created. Log in with your new account.')
     playwright.expect(page.locator('#chat-view')).to_be_hidden()
     playwright.expect(page.locator('#password')).to_have_value('')
     login(page, name)
@@ -40,12 +39,10 @@ def send(page, text):
 
 
 def close_browser(browser):
-    # Complete the application's close handshake before terminating Chromium.
     for context in browser.contexts:
         for page in context.pages:
-            if not page.is_closed() and page.locator('#disconnect').count() and page.locator('#disconnect').is_enabled():
-                page.locator('#disconnect').click()
-                playwright.expect(page.locator('#connection-status')).to_have_text('Disconnected')
+            if not page.is_closed():
+                page.evaluate("window.dispatchEvent(new Event('pagehide'))")
     browser.close()
 
 
@@ -59,6 +56,7 @@ def test_rendered_chat_security_and_reconnect(secured_server, ui_address, tmp_pa
             errors = []
             alice.on('pageerror', lambda error: errors.append(str(error)))
             bob.on('pageerror', lambda error: errors.append(str(error)))
+            alice.add_init_script("window.__testSockets=[]; const Native=window.WebSocket; window.WebSocket=class extends Native { constructor(...args) { super(...args); window.__testSockets.push(this); } };")
             alice.goto(ui_address)
             alice.screenshot(path=str(tmp_path / 'ui-welcome.png'), full_page=True)
             register(alice, ui_address, controls.uri, ' ALICE ')
@@ -92,11 +90,11 @@ def test_rendered_chat_security_and_reconnect(secured_server, ui_address, tmp_pa
             assert alice.locator('.message-body').count() == 2
             alice.locator('#message').fill('my next draft')
             controls.release.set()
-            playwright.expect(alice.locator('#notice')).to_have_text('This message was blocked by the security policy.')
+            playwright.expect(alice.locator('#composer-notice')).to_have_text('This message was blocked by the security policy.')
             playwright.expect(alice.locator('#message')).to_have_value('my next draft')
             controls.slow = None
             send(alice, 'pineapple')
-            playwright.expect(alice.locator('#notice')).to_have_text('This name or message is not allowed.')
+            playwright.expect(alice.locator('#composer-notice')).to_have_text('This name or message is not allowed.')
             alice.locator('#history').click()
             playwright.expect(alice.locator('#send')).to_be_enabled()
             assert alice.locator('.message-body').count() == 2
@@ -118,10 +116,11 @@ def test_rendered_chat_security_and_reconnect(secured_server, ui_address, tmp_pa
             alice.locator('#leave').click()
             playwright.expect(alice.locator('#room-title')).to_have_text('Select a room')
             alice.get_by_role('button', name='Select General', exact=True).click()
-            playwright.expect(alice.locator('#notice')).to_have_text('You are not a member of this room. Join it first.')
+            playwright.expect(alice.locator('#room-notice')).to_have_text('You are not a member of this room. Join it first.')
             alice.get_by_role('button', name='Join General', exact=True).click()
             playwright.expect(alice.locator('.message-body')).to_have_count(3)
-            alice.locator('#connect').click()
+            alice.evaluate('window.__testSockets.at(-1).close()')
+            playwright.expect(alice.locator('#connection-status')).to_have_text('Reconnecting…')
             playwright.expect(alice.locator('#connection-status')).to_have_text('Connected')
             playwright.expect(alice.locator('#auth-view')).to_be_visible()
             assert alice.locator('.message-body').count() == 0
@@ -129,8 +128,9 @@ def test_rendered_chat_security_and_reconnect(secured_server, ui_address, tmp_pa
             playwright.expect(alice.locator('#send')).to_be_disabled()
             alice.get_by_role('button', name='Select General', exact=True).click()
             playwright.expect(alice.locator('.message-body')).to_have_count(3)
-            alice.locator('#disconnect').click()
-            playwright.expect(alice.locator('#connection-status')).to_have_text('Disconnected')
+            alice.locator('#logout').click()
+            playwright.expect(alice.locator('#auth-view')).to_be_visible()
+            playwright.expect(alice.locator('#logout')).to_be_hidden()
             assert not errors
         finally:
             controls.release.set()
@@ -153,7 +153,7 @@ def test_target_room_errors_filter_and_security_messages(secured_server, ui_addr
                 playwright.expect(page.locator('#send')).to_be_enabled()
             alice.locator('#refresh-rooms').click()
             alice.get_by_role('button', name='Select Other', exact=True).click()
-            playwright.expect(alice.locator('#notice')).to_have_text('You are not a member of this room. Join it first.')
+            playwright.expect(alice.locator('#room-notice')).to_have_text('You are not a member of this room. Join it first.')
             playwright.expect(alice.locator('#room-title')).to_have_text('# General')
             playwright.expect(alice.locator('.room.selected .room-meta')).to_have_text('Selected · live')
             playwright.expect(alice.locator('#send')).to_be_enabled()
@@ -189,7 +189,7 @@ def test_target_room_errors_filter_and_security_messages(secured_server, ui_addr
             ]:
                 controls.mode = mode
                 send(alice, text)
-                playwright.expect(alice.locator('#notice')).to_have_text(message)
+                playwright.expect(alice.locator('#composer-notice')).to_have_text(message)
                 playwright.expect(alice.locator('.message-body')).to_have_count(2)
             alice.locator('#history').click()
             playwright.expect(alice.locator('#send')).to_be_enabled()
@@ -208,14 +208,10 @@ def test_http_health_is_independent_of_websocket(ui_address):
             page.route('**/health', lambda route: route.fulfill(status=503, body='unavailable'))
             page.goto(ui_address)
             playwright.expect(page.locator('#health-status')).to_have_text('Server unavailable')
-            page.locator('#connect').click()
             playwright.expect(page.locator('#connection-status')).to_have_text('Connected')
-            playwright.expect(page.locator('#health-status')).to_have_text('Server unavailable')
             page.unroute('**/health')
-            page.locator('#connect').click()
+            page.reload()
             playwright.expect(page.locator('#health-status')).to_have_text('Server online')
-            page.locator('#disconnect').click()
-            playwright.expect(page.locator('#connection-status')).to_have_text('Disconnected')
-            playwright.expect(page.locator('#health-status')).to_have_text('Server online')
+            playwright.expect(page.locator('#connection-status')).to_have_text('Connected')
         finally:
             close_browser(browser)

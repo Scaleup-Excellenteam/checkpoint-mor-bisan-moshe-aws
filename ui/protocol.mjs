@@ -1,8 +1,8 @@
 // Browser-only transport. Credentials are never persisted or logged.
 export const errors = {
-  invalid_username: 'Use 3–20 English letters, digits, or underscores.',
-  invalid_password: 'Use 8–32 characters and at least two of: letters, digits, or @#$%^&*.',
-  username_taken: 'That username is already taken.',
+  invalid_username: 'Username is invalid. Use 3–20 English letters, numbers, or underscores.',
+  invalid_password: 'Password is invalid. Use 8–32 characters and at least two of: letters, numbers, or @#$%^&*.',
+  username_taken: 'Username is already taken.',
   invalid_credentials: 'Incorrect username or password.',
   unauthenticated: 'Please log in to continue.',
   forbidden_term: 'This name or message is not allowed.',
@@ -27,8 +27,13 @@ export const errors = {
 };
 export const friendlyError = code => errors[code] || 'The request could not be completed. Try again later.';
 export const normalizeUsername = value => value.trim().toLowerCase();
+// Match Python str.strip whitespace exactly, including control separators and NEL.
+const passwordEdges = /^[\u0009-\u000d\u001c-\u0020\u0085\u00a0\u1680\u2000-\u200a\u2028\u2029\u202f\u205f\u3000]+|[\u0009-\u000d\u001c-\u0020\u0085\u00a0\u1680\u2000-\u200a\u2028\u2029\u202f\u205f\u3000]+$/g;
+export const normalizePassword = value => value.replace(passwordEdges, '');
+export const passwordHasWhitespace = value => /[\s\u001c-\u001f\u0085]/u.test(normalizePassword(value));
 export const validUsername = value => /^[a-z0-9_]{3,20}$/.test(value);
 export function validPassword(value) {
+  value = normalizePassword(value);
   return /^[a-zA-Z0-9@#$%^&*]{8,32}$/.test(value) &&
     [/[a-zA-Z]/, /[0-9]/, /[@#$%^&*]/].filter(pattern => pattern.test(value)).length >= 2;
 }
@@ -100,6 +105,7 @@ export class ChatConnection {
     if (generation !== this.#generation) throw new ChatError('disconnected');
     if (!response.ok) throw new ChatError(response.error);
     if (action === 'login') this.#token = response.token;
+    if (action === 'logout') this.#token = null;
     return response;
   }
 }

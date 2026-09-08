@@ -45,10 +45,18 @@ async def chat_client(uri):
                 action = "signup" if choice == "1" else "login"
                 response = await client.request(action, username=username, password=password)
             else:
-                line = await asyncio.to_thread(input, f"[{selected or '-'}] /list /create /join /leave /select /history /reconnect /quit > ")
+                line = await asyncio.to_thread(input, f"[{selected or '-'}] /list /create /join /leave /select /history /logout /reconnect /quit > ")
                 command, _, argument = line.partition(" ")
                 if command == "/quit":
                     break
+                if command == "/logout":
+                    response = await client.request("logout")
+                    if response["ok"]:
+                        selected = None
+                        print("Logged out.")
+                    else:
+                        print("Could not log out. Please try again.")
+                    continue
                 if command == "/reconnect":
                     await client.close()
                     await client.connect()

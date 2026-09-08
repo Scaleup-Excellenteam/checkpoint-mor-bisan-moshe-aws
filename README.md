@@ -88,22 +88,24 @@ No frontend server, npm install, or build is needed. FastAPI serves `/` and
 Only port 8000 needs to be reachable; see the firewall notes above.
 
 The WebSocket address defaults to the current page's host/port: HTTP uses `ws://`
-and HTTPS uses `wss://`. Click **Connect**; the optional address field supports
-development against another server. This does not configure TLS: the included
+and HTTPS uses `wss://`. Connection starts automatically; no server address or
+technical connection controls are shown. Unexpected disconnects retry after
+1, 2, 4, 8, 16, then at most 30 seconds. Retries never resend messages or log in
+automatically. This does not configure TLS: the included
 server uses unencrypted HTTP/WS. HTTPS/WSS would require separate TLS deployment.
 The UI itself needs neither Ollama nor a VirusTotal key.
 
 The separate **Server online / Server unavailable** indicator checks HTTP health
-on page load, reconnect, and every 30 seconds, with a five-second timeout. It does
+on page load and every 30 seconds, with a five-second timeout. It does
 not represent WebSocket login or security-service availability. WebSocket status
-remains visible separately. Health requests send no credentials. A cross-origin
-development override may show unavailable if that server does not permit CORS,
-even while its WebSocket works; normal same-server use needs no CORS setup.
+remains visible separately. Health requests send no credentials. Same-server use
+needs no CORS setup; there is no production server-address override.
 The optional `ui/serve.py` development helper remains available but is not needed
 for normal use. Never serve the repository root containing `.env`.
 
-1. **Sign up**, then **Log in**. Usernames are normalized; passwords are masked,
-   never trimmed, and cleared after submission. Validation feedback does not
+1. **Sign up**, then **Log in** once the chat connection is ready. Usernames are
+   not case-sensitive. Passwords are masked and cleared after submission; accidental
+   surrounding whitespace is ignored, while internal whitespace is rejected. Validation feedback does not
    replace the server's authentication or security checks.
 2. Create a room or **Join** a public room. To return to an existing membership,
    choose **Select**. Create/join/select selects that room and loads its history.
@@ -118,9 +120,19 @@ for normal use. Never serve the repository root containing `.env`.
    Only actual `room_message` events enter the conversation; rejected text stays
    in the composer for editing. History and events are deduplicated by `message_id`.
    History also refreshes timestamps on existing live-message entries.
-4. **Leave room** ends membership. **Reconnect** or **Disconnect** clears the local
-   session and displayed history. Log in and select a room again to recover history.
+4. **Leave room** ends membership. **Log out**, available throughout the account
+   view, revokes the current session and returns to login without changing the account
+   or room memberships. Other independently logged-in sessions remain valid.
+   An unexpected disconnect clears the local session and displayed history;
+   after automatic reconnection, log in and select a room again to recover history.
    No passwords, session tokens, or chat data are saved to browser storage.
+
+Authentication errors appear above the account fields; room errors beside room
+controls; send/security errors beside the composer. Rejected drafts remain editable.
+Composer errors clear on editing, a successful send, changing rooms or logout.
+Connection retries preserve entered authentication fields. If server logout cannot
+be confirmed, the UI still clears local account state and reports the limitation;
+the old server token may remain valid until explicitly revoked or the server restarts.
 
 The UI sends only the existing JSON WebSocket operations to `/ws`; the additional
 HTTP routes serve static UI files only. Sender names come from server responses and events.
@@ -140,11 +152,11 @@ adapters with controlled external model/provider responses. Browser tests use
 optional Playwright tooling; neither Node nor Playwright is needed to use the UI.
 
 ```powershell
-node --test ui/tests/protocol.test.mjs ui/tests/health.test.mjs
+node --test ui/tests/protocol.test.mjs ui/tests/health.test.mjs ui/tests/connection.test.mjs
 ./.venv/Scripts/python.exe -m pip install -r ui/requirements-test.txt
 ./.venv/Scripts/python.exe -m playwright install chromium
 $env:PYTHON_DOTENV_DISABLED = "1"
-./.venv/Scripts/python.exe -m pytest -q tests/test_ui_protocol.py tests/test_ui_browser.py tests/test_ui_serving.py
+./.venv/Scripts/python.exe -m pytest -q tests/test_ui_protocol.py tests/test_ui_browser.py tests/test_ui_serving.py tests/test_ui_usability.py tests/test_auth_usability.py
 Remove-Item Env:PYTHON_DOTENV_DISABLED
 ```
 
@@ -199,15 +211,19 @@ letters a-z, digits or underscores. Passwords are 8-32 characters, allowing
 uppercase and lowercase English letters, digits, and only `@#$%^&*` as special
 characters. At least two of three categories are required: letters (both cases
 count together), digits, and allowed special characters. Letters plus digits
-are sufficient; a special character is not mandatory. Passwords are not trimmed,
-are masked during entry, and are stored only as salted bcrypt hashes. They never
+are sufficient; a special character is not mandatory. Signup and login both remove
+surrounding whitespace before validating length and verifying/storing the password;
+internal whitespace is invalid and letter case is preserved. Passwords are masked
+during entry and stored only as salted bcrypt hashes. They never
 enter the content-security modules. Login failures return the same
 `invalid_credentials` error for an unknown username or incorrect password;
 successful login creates an in-memory session.
 
 Client A: `/create General`; client B: `/join General`; then type a message.
 Commands: `/list`, `/create NAME`, `/join NAME`, `/select NAME`, `/leave NAME`,
-`/history`, `/reconnect`, `/quit`. Names may contain spaces. Create/join/select
+`/history`, `/logout`, `/reconnect`, `/quit`. The CLI submits passwords to the same
+server-side validation; `/logout` revokes its token and returns to the login menu.
+Names may contain spaces. Create/join/select
 select that room. Selection is per connection; stored membership in other rooms
 remains unchanged. Both sending and live receiving require that room to be selected
 and membership to remain active. Leave clears affected selections; reconnect
@@ -333,8 +349,12 @@ fields. Request IDs still correlate replies if events arrive first. The inbound
 limit is 64 KiB; malformed envelopes may return `id: null`, and oversized frames
 can close the connection. Identity always comes from the validated session.
 
-Actions: `signup`, `login`, `list_groups`, `create_group`, `join_group`,
+Actions: `signup`, `login`, `logout`, `list_groups`, `create_group`, `join_group`,
 `leave_group`, `select_room`, `history`, `send_message`.
+
+`logout` uses the existing request ID and token fields and returns `ok: true`,
+including for an already-invalid session. Revocation also clears room presence
+on connections using that token. It does not delete the account or credentials.
 
 Security rejections include safe `security` fields: action, risk_score, source,
 and reason_code. The CLI displays a readable explanation alongside the code:
