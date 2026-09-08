@@ -39,7 +39,7 @@ class Service(BaseHTTPRequestHandler):
         payload = json.loads(self.rfile.read(int(self.headers['Content-Length'])))
         assert 'recent_attempts' in json.loads(payload['prompt'])
         Service.llm_calls += 1
-        self.reply({'done': True, 'response': json.dumps({'action': Service.mode, 'risk_score': 60})})
+        self.reply({'done': True, 'response': json.dumps({'action': Service.mode, 'risk_score': 60 if Service.mode == 'block' else 5})})
 
     def do_GET(self):
         assert self.path.startswith('/domains/')

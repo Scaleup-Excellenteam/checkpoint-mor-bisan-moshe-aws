@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {ChatConnection, MessageStore, normalizeUsername, validUsername, validPassword, friendlyError} from '../protocol.mjs';
+import {ChatConnection, MessageStore, normalizeUsername, normalizePassword, passwordHasWhitespace, validUsername, validPassword, friendlyError} from '../protocol.mjs';
 
 class Socket {
   static instances = [];
@@ -16,8 +16,12 @@ test('authentication contract boundaries and category combinations', () => {
   assert.equal(normalizeUsername('  BiSAN_1 '), 'bisan_1');
   for (const name of ['abc', 'a_1', 'a'.repeat(20)]) assert.ok(validUsername(name));
   for (const name of ['ab', 'a'.repeat(21), 'ABC', 'abc!', 'éabc', 'abc\n']) assert.equal(validUsername(name), false);
-  for (const value of ['abcd1234', 'abcd@#$%', '1234@#$%', 'a1'.repeat(16)]) assert.ok(validPassword(value));
-  for (const value of ['abcdefgh', 'ABCDEFGH', '12345678', '@#$%^&*@', 'abc123!', 'abc123', 'a1'.repeat(17), ' abcd1234', 'abcd1234 ', 'abcd1234\n']) assert.equal(validPassword(value), false);
+  for (const value of ['abcd1234', 'abcd@#$%', '1234@#$%', 'a1'.repeat(16), ' abcd1234', 'abcd1234 ', 'abcd1234\n']) assert.ok(validPassword(value));
+  for (const value of ['abcdefgh', 'ABCDEFGH', '12345678', '@#$%^&*@', 'abc123!', 'abc123', 'a1'.repeat(17), 'Pass 123@', 'Pass\t123@', '  short1  ']) assert.equal(validPassword(value), false);
+  for (const edge of [' ', '\t', '\n', '\u0085', '\u001c', '\u3000']) assert.equal(normalizePassword(edge + 'Pass123@' + edge), 'Pass123@');
+  assert.equal(normalizePassword('Pass123@'), 'Pass123@');
+  assert.ok(passwordHasWhitespace('Pass\t123@'));
+  assert.equal(friendlyError('username_taken'), 'Username is already taken.');
   assert.equal(friendlyError('invalid_credentials'), 'Incorrect username or password.');
   const securityCodes = ['security_check_unavailable', 'reputation_unavailable', 'reputation_review_required', 'malicious_url', 'forbidden_term', 'recipe_blocked'];
   assert.equal(new Set(securityCodes.map(friendlyError)).size, 6);
@@ -80,4 +84,16 @@ test('history and live events merge by id without loss, duplication, or room lea
   assert.deepEqual(store.get(2).map(m => m.message_id), [1, 3]);
   assert.equal(store.get(2)[1].username, 'server_name');
   store.clear(); assert.deepEqual(store.get(2), []);
+});
+
+test('successful logout clears the private token without changing response correlation', async () => {
+  const client = new ChatConnection({WebSocketClass: Socket});
+  await client.connect('ws://localhost/ws');
+  const socket = Socket.instances.at(-1);
+  const login = client.request('login'); socket.response(0, {token: 'test-only-token'}); await login;
+  const logout = client.request('logout'); assert.equal(socket.sent[1].token, 'test-only-token');
+  socket.response(1); await logout;
+  const again = client.request('list_groups'); assert.equal(socket.sent[2].token, null);
+  socket.response(2, {ok: false, error: 'unauthenticated'});
+  await assert.rejects(again, {code: 'unauthenticated'}); client.disconnect();
 });

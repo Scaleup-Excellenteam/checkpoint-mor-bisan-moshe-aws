@@ -120,7 +120,19 @@ non-JSON/prose/code fences, duplicate or extra fields, missing fields, unsupport
 actions, and non-integer/out-of-range scores. Booleans are not accepted as scores.
 Runtime responses are limited to 64 KiB. Success reasons are generated in Python:
 `recipe_context_detected` for block and `recipe_context_not_detected` for allow.
-No action/score thresholds beyond the frozen 0-99 classifier range are invented.
+For a valid classification, the score is authoritative: 0-29 resolves to allow,
+30-99 to block, using the shared `recipe_action_for_score` rule. Both adapter and
+policy enforce this rule. A contradictory action is corrected deterministically
+and marked `failure=inconsistent_action_score` in the existing LLM metadata stage;
+it is not treated as a service outage and does not cause another network request.
+Unsupported actions or malformed scores still fail closed. Rule scores trigger
+review and remain aggregate log metadata; they cannot override an LLM allowance.
+
+The prompt contains explicit examples distinguishing chocolate cake and ordinary
+pizza discussion from complete or cross-message pizza-recipe disclosure. It judges
+the current contribution using context, without requiring a literal pizza keyword.
+Re-run the exact reported cake message on the real model after this correction:
+mocked tests verify contracts and flow, not actual model classification quality.
 
 Every configuration, input, HTTP, timeout, parsing or validation failure returns:
 

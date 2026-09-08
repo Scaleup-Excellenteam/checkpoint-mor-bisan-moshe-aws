@@ -36,6 +36,7 @@ def validate_password(password: str) -> bool:
     The password must contain 8-32 allowed characters and at least
     two of these categories: letters, digits and special characters.
     """
+    password = normalize_password(password)
     special_char_set = r'[@#$%^&*]'
     allowed_char_set = r'[a-zA-Z0-9@#$%^&*]{8,32}'
 
@@ -51,16 +52,21 @@ def validate_password(password: str) -> bool:
     )
 
 
+def normalize_password(password: str) -> str:
+    """Tolerate surrounding whitespace; preserve case and internal characters."""
+    return password.strip()
+
+
 def hash_password(password: str) -> str:
     """Create and return a bcrypt password hash containing its salt."""
-    password_bytes = password.encode("utf-8")
+    password_bytes = normalize_password(password).encode("utf-8")
     password_hash = bcrypt.hashpw(password_bytes, bcrypt.gensalt())
     return password_hash.decode("utf-8")
 
 
 def verify_password(password: str, password_hash: str) -> bool:
     """Return whether a plaintext password matches a stored bcrypt hash."""
-    password_bytes = password.encode("utf-8")
+    password_bytes = normalize_password(password).encode("utf-8")
     password_hash_bytes = password_hash.encode("utf-8")
     return bcrypt.checkpw(password_bytes, password_hash_bytes)
 
@@ -84,6 +90,7 @@ def signup(username: str, password: str) -> dict[str, Any]:
     error result.
     """
     normalized_username = normalize_username(username)
+    password = normalize_password(password)
 
     if not validate_username(normalized_username):
         return {
@@ -129,6 +136,7 @@ def login(username: str, password: str) -> dict[str, Any]:
     Return a success result containing token, user_id and username,
     or invalid_credentials.
     """
+    password = normalize_password(password)
     if not validate_password(password):
         return {"ok": False, "error": "invalid_credentials"}
     normalized_username = normalize_username(username)
@@ -153,3 +161,10 @@ def login(username: str, password: str) -> dict[str, Any]:
 def validate_session(token: str) -> int | None:
     """Return the session's user_id, or None if the token is invalid."""
     return sessions.get(token)
+
+
+def logout(token: str | None) -> dict[str, Any]:
+    """Revoke this session only; repeated logout reveals no session information."""
+    if isinstance(token, str):
+        sessions.pop(token, None)
+    return {"ok": True}

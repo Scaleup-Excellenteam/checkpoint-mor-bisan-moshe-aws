@@ -43,6 +43,8 @@ class ChatClient:
             response = await asyncio.wait_for(future, 30)
             if action == "login" and response["ok"]:
                 self.token = response["token"]
+            elif action == "logout" and response["ok"]:
+                self.token = None
             return response
         finally:
             self.pending.pop(request_id, None)

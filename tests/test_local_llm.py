@@ -81,10 +81,10 @@ def test_recipe_and_non_recipe_decisions(http, action, score, reason, text):
 
 @pytest.mark.parametrize("action", ["allow", "block"])
 @pytest.mark.parametrize("score", [0, 29, 30, 99])
-def test_valid_score_boundaries_do_not_repeat_policy_routing(http, action, score):
+def test_valid_score_boundaries_determine_action(http, action, score):
     http[2].read.return_value = envelope({"action": action, "risk_score": score})
     decision = OllamaRecipeClassifier().classify("synthetic text", [])
-    assert decision.action == action
+    assert decision.action == ('allow' if score <= 29 else 'block')
     assert decision.risk_score == score
     assert decision.reason_code != "security_check_unavailable"
     http[1].open.assert_called_once()

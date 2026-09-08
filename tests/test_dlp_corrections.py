@@ -103,11 +103,11 @@ def test_prompt_scope_and_current_context_with_mocked_model(monkeypatch, text, a
     # Validates prompt and plumbing, not real-model semantic accuracy.
     def model(endpoint, payload, timeout):
         prompt = payload['system']
-        for phrase in ('current text', 'pizza recipe', 'chocolate cake', 'neutral current message',
+        for phrase in ('current text', 'pizza recipe', 'Allow unrelated recipes', 'neutral current message',
                        'ordinary pizza discussion', 'short current fragments'):
             assert phrase in prompt
         assert json.loads(payload['prompt']) == {'text': text, 'recent_attempts': ['pizza 200 g flour mix']}
-        return json.dumps({'done': True, 'response': json.dumps({'action': action, 'risk_score': 60})}).encode()
+        return json.dumps({'done': True, 'response': json.dumps({'action': action, 'risk_score': 60 if action == 'block' else 5})}).encode()
     monkeypatch.setattr(local_llm, '_call_model', model)
     policy = SecurityPolicy(RuleDLPChecker(), local_llm.OllamaRecipeClassifier(), URLs(), URLs())
     result = policy.evaluate(text, MessageSecurityContext(1, 1, ('pizza 200 g flour mix',)))

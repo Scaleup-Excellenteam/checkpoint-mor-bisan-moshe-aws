@@ -1,45 +1,46 @@
-import {ChatConnection, ChatError, MessageStore, normalizeUsername, validUsername, validPassword} from './protocol.mjs';
+import {ChatError, MessageStore, normalizeUsername, normalizePassword, passwordHasWhitespace, validUsername, validPassword} from './protocol.mjs';
+import {AutoConnection} from './connection.mjs';
 import {HealthMonitor, defaultWebSocketURL} from './health.mjs';
 
 const $ = id => document.getElementById(id);
-$('address').value = defaultWebSocketURL(window.location);
+const address = defaultWebSocketURL(window.location);
 const health = new HealthMonitor({onStatus: text => { $('health-status').textContent = text; }});
-health.start($('address').value);
 const store = new MessageStore();
 let status = 'disconnected', username = null, selected = null, groups = [], memberships = new Map();
-let mode = 'login', busy = false, sending = false, epoch = 0;
-const client = new ChatConnection({onStatus: connectionStatus, onEvent: event => {
+let mode = 'login', busy = false, sending = false, loggingOut = false, epoch = 0;
+const client = new AutoConnection({address, onStatus: connectionStatus, onEvent: event => {
   store.add(event.room_id, [event]);
   if (selected?.room_id === event.room_id) renderMessages();
 }});
 
-function notice(text, error = false) {
-  $('notice').textContent = text;
-  $('notice').classList.toggle('error', error);
+function notice(text, error = false, scope = 'notice') {
+  $(scope).textContent = text;
+  $(scope).hidden = !text;
+  $(scope).classList.toggle('error', error);
 }
 function connectionStatus(next) {
   status = next;
   if (next !== 'connected') {
     epoch++; username = null; selected = null; groups = []; memberships.clear(); store.clear();
-    busy = false; sending = false; $('password').value = ''; $('message').value = '';
+    busy = false; sending = false;
+    notice('', false, 'room-notice'); notice('', false, 'composer-notice');
     renderRooms(); renderMessages();
   }
-  $('connection-status').textContent = next[0].toUpperCase() + next.slice(1);
+  $('connection-status').textContent = {connecting: 'Connecting…', reconnecting: 'Reconnecting…', connected: 'Connected', disconnected: 'Disconnected'}[next];
   $('connection-status').className = `badge ${next}`;
-  if (next === 'disconnected') notice('Disconnected. Reconnect, log in, and select a room. Check history before retrying any pending message.');
-  if (next === 'connected') notice('Connected. Log in or create an account.');
+  if (next === 'reconnecting' && !loggingOut) notice('Connection lost. Reconnecting automatically. Please log in again when connected; check history before retrying a pending message.');
+  if (next === 'connected') notice('');
   renderControls();
 }
 function renderControls() {
   const ready = status === 'connected';
-  $('connect').disabled = status === 'connecting';
-  $('connect').textContent = ready ? 'Reconnect' : 'Connect';
-  $('disconnect').disabled = status === 'disconnected';
-  $('address').disabled = status === 'connecting';
+  $('logout').hidden = !username;
+  $('logout').disabled = loggingOut;
+  $('logout').textContent = loggingOut ? 'Logging out…' : 'Log out';
   $('auth-view').hidden = !!username; $('chat-view').hidden = !username;
   $('identity').textContent = username ? `Logged in as ${username}` : 'Your conversations, connected.';
-  for (const id of ['auth-submit', 'username', 'password', 'login-tab', 'signup-tab']) $(id).disabled = !ready || busy;
-  for (const button of $('chat-view').querySelectorAll('button')) button.disabled = !ready || !username || busy;
+  for (const id of ['auth-submit', 'username', 'password', 'login-tab', 'signup-tab']) $(id).disabled = !ready || busy || loggingOut;
+  for (const button of $('chat-view').querySelectorAll('button')) button.disabled = !ready || !username || busy || loggingOut;
   for (const id of ['history', 'leave', 'send']) $(id).disabled ||= !selected;
   $('message').disabled = !ready || !username || !selected;
   $('room-name').disabled = !ready || !username;
@@ -48,16 +49,21 @@ function renderControls() {
   $('room-title').textContent = selected ? `# ${selected.room_name}` : 'Select a room';
   $('room-subtitle').textContent = selected ? 'Live messages arrive only for this selected room.' : 'Choose a room from the sidebar to get started.';
 }
-async function run(operation, isSend = false) {
-  if (busy) return;
+async function run(operation, isSend = false, scope = 'room-notice') {
+  if (busy || loggingOut) return;
+  notice('', false, scope);
   const current = epoch;
   busy = true; sending = isSend; renderControls();
   try { await operation(); }
   catch (error) {
     // Transport failures remain useful after they have reset the session.
-    if (current === epoch || ['disconnected', 'timeout'].includes(error.code)) {
-      if (error.code === 'unauthenticated') client.disconnect();
-      notice(error instanceof ChatError ? error.message : 'Could not complete the operation. Check the server address and connection.', true);
+    if (!loggingOut && (current === epoch || ['disconnected', 'timeout'].includes(error.code))) {
+      if (error.code === 'unauthenticated') { client.restart(); scope = 'auth-notice'; }
+      const text = error.code === 'disconnected' ? 'Connection lost. Please wait while we reconnect.' :
+        error.code === 'timeout' ? 'This is taking longer than expected. Delivery may be unknown; check history after logging in again.' :
+        error instanceof ChatError ? error.message : 'Could not complete the request. Please try again.';
+      if (scope === 'auth-notice') notice('');
+      notice(text, true, scope);
     }
   } finally { if (current === epoch) { busy = false; sending = false; renderControls(); } }
 }
@@ -77,6 +83,7 @@ async function roomRequest(action, fields) {
 }
 function setMode(next) {
   mode = next; $('password').value = '';
+  notice('', false, 'auth-notice');
   $('login-tab').setAttribute('aria-pressed', String(mode === 'login'));
   $('signup-tab').setAttribute('aria-pressed', String(mode === 'signup'));
   $('auth-title').textContent = mode === 'login' ? 'Welcome back' : 'Make yourself at home';
@@ -85,29 +92,39 @@ function setMode(next) {
 }
 $('login-tab').onclick = () => setMode('login');
 $('signup-tab').onclick = () => setMode('signup');
-$('connect').onclick = async () => {
-  try { health.start($('address').value.trim()); await client.connect($('address').value.trim()); }
-  catch (error) { notice(error instanceof ChatError ? error.message : 'Enter a valid ws:// or wss:// server address (for example ws://127.0.0.1:8000/ws).', true); }
+$('logout').onclick = async () => {
+  if (loggingOut) return;
+  loggingOut = true; renderControls();
+  let failed = false;
+  try { await client.request('logout'); } catch { failed = true; }
+  // Always leave the account view, even if revocation could not be confirmed.
+  client.stop(); $('password').value = ''; $('message').value = '';
+  notice(''); setMode('login'); loggingOut = false;
+  notice(failed ? 'Logged out on this device. Server logout could not be confirmed.' : 'You have logged out.', failed, 'auth-notice');
+  client.start(); renderControls();
 };
-$('disconnect').onclick = () => client.disconnect();
-window.addEventListener('pagehide', () => { health.stop(); client.disconnect(); });
-window.addEventListener('pageshow', event => { if (event.persisted) health.start($('address').value.trim()); });
+window.addEventListener('pagehide', () => { health.stop(); client.stop(); });
+window.addEventListener('pageshow', event => { if (event.persisted) { health.start(address); client.start(); } });
 $('auth-form').onsubmit = event => {
   event.preventDefault();
   const name = normalizeUsername($('username').value);
   $('username').value = name;
-  if (!validUsername(name) || !validPassword($('password').value)) {
+  const password = normalizePassword($('password').value);
+  if (!validUsername(name) || !validPassword(password)) {
     const code = mode === 'login' ? 'invalid_credentials' : !validUsername(name) ? 'invalid_username' : 'invalid_password';
-    $('password').value = ''; notice(new ChatError(code).message, true); return;
+    const text = code === 'invalid_password' && passwordHasWhitespace(password) ? 'Spaces are not allowed in passwords.' : new ChatError(code).message;
+    $('password').value = ''; notice(text, true, 'auth-notice'); return;
   }
   run(async () => {
     // Clear the masked field immediately after serialization; retain no credential state.
-    const pending = client.request(mode, {username: name, password: $('password').value});
+    const pending = client.request(mode, {username: name, password});
     $('password').value = '';
     const result = await pending;
-    if (mode === 'signup') { setMode('login'); notice('Account created. Log in with your new account.'); $('password').focus(); }
-    else { username = result.username; notice(`Welcome, ${username}. Join a room or select one you already belong to.`); await listRooms(); }
-  });
+    if (mode === 'signup') { setMode('login'); notice('Account created. Log in with your new account.', false, 'auth-notice'); $('password').focus(); }
+    else { username = result.username; notice('', false, 'auth-notice'); renderControls();
+      try { await listRooms(); } catch (error) { notice(error instanceof ChatError ? error.message : 'Could not load rooms. Please try again.', true, 'room-notice'); }
+    }
+  }, false, 'auth-notice');
 };
 async function listRooms() {
   const result = await client.request('list_groups'); groups = result.groups; renderRooms();
@@ -138,8 +155,9 @@ async function chooseRoom(action, name) {
   const result = await roomRequest(action, {room_name: name});
   selected = {room_id: result.room_id, room_name: groups.find(g => g.room_id === result.room_id)?.room_name || result.room_name};
   memberships.set(selected.room_id, true); $('message').value = '';
+  notice('', false, 'composer-notice');
   renderRooms(); renderMessages(); renderControls();
-  notice(`Selected ${selected.room_name}. You’re receiving this room’s live messages.`);
+  notice(`Selected ${selected.room_name}. You’re receiving this room’s live messages.`, false, 'room-notice');
   await loadHistory();
   if (action === 'create_group') { $('room-name').value = ''; await listRooms(); }
 }
@@ -157,7 +175,8 @@ $('leave').onclick = () => run(async () => {
   const room = selected;
   await roomRequest('leave_group', {room_name: room.room_name});
   memberships.set(room.room_id, false); store.rooms.delete(room.room_id); selected = null; $('message').value = '';
-  renderRooms(); renderMessages(); notice(`You left ${room.room_name}. Join again to participate.`);
+  notice('', false, 'composer-notice');
+  renderRooms(); renderMessages(); notice(`You left ${room.room_name}. Join again to participate.`, false, 'room-notice');
 });
 function renderMessages() {
   const box = $('messages');
@@ -191,14 +210,16 @@ $('message-form').onsubmit = event => {
   event.preventDefault();
   if (!selected || busy) return;
   const content = $('message').value;
-  if (!content.trim()) { notice('Write a message before sending.', true); return; }
+  if (!content.trim()) { notice('Write a message before sending.', true, 'composer-notice'); return; }
   const room = selected;
   run(async () => {
-    notice('Checking your message. Incoming messages will continue to appear.');
     await roomRequest('send_message', {room_name: room.room_name, content});
     // Only room_message events render sent content. Preserve edits made during checking.
     if ($('message').value === content) $('message').value = '';
-    notice('Message accepted.');
-  }, true);
+    notice('', false, 'composer-notice');
+  }, true, 'composer-notice');
 };
+$('message').oninput = () => notice('', false, 'composer-notice');
 renderControls();
+health.start(address);
+client.start();

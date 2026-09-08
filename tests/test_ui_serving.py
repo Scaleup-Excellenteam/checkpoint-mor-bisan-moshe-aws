@@ -10,7 +10,8 @@ def test_static_health_websocket_and_project_paths(secured_server, monkeypatch, 
     monkeypatch.chdir(tmp_path)
     base = secured_server.health.removesuffix('/health')
     for path, mime, expected in [('/', 'text/html', 'id="auth-form"'),
-                                ('/static/app.mjs', 'text/javascript', 'ChatConnection'),
+                                ('/static/app.mjs', 'text/javascript', 'AutoConnection'),
+                                ('/static/connection.mjs', 'text/javascript', 'ChatConnection'),
                                 ('/static/health.mjs', 'text/javascript', 'HealthMonitor'),
                                 ('/static/theme.css', 'text/css', '.connection'),
                                 ('/health', 'application/json', 'healthy')]:
