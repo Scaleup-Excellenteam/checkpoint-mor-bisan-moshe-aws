@@ -17,6 +17,13 @@ HARD_BLOCK_SCORE = 100
 CONTEXT_WINDOW_SIZE = 10
 
 
+def recipe_action_for_score(score: int) -> SecurityAction:
+    """Resolve valid LLM classification scores; service failures are separate."""
+    if type(score) is not int or not 0 <= score <= 99:
+        raise ValueError("Invalid recipe classification score")
+    return "allow" if score <= ALLOW_MAX_SCORE else "block"
+
+
 @dataclass(frozen=True)
 class SecurityDecision:
     """One module's decision. details must never contain secrets or raw blocked text."""
@@ -53,7 +60,11 @@ class DeterministicDLPChecker(Protocol):
 
 class RecipeClassifier(Protocol):
     def classify(self, text: str, recent_attempts: Sequence[str]) -> SecurityDecision:
-        """Resolve rule scores 30-99 to allow or block using a local model."""
+        """Review with a local model: LLM scores 0-29 allow, 30-99 block.
+
+        Service failures must return security_check_unavailable (block) or raise.
+        Rule scores only trigger review; they do not override an LLM allowance.
+        """
 
 
 class URLExtractor(Protocol):
@@ -69,4 +80,3 @@ class URLReputationChecker(Protocol):
 class MessageSecurityPolicy(Protocol):
     def evaluate(self, text: str, context: MessageSecurityContext) -> SecurityDecision:
         """Combine DLP, optional local-LLM review, and URL reputation."""
-

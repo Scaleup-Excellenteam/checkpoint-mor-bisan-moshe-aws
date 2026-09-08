@@ -24,6 +24,7 @@ from chat_system.security_contracts import (
     ALLOW_MAX_SCORE, CONTEXT_WINDOW_SIZE, DeterministicDLPChecker,
     MessageSecurityContext, RecipeClassifier, SecurityDecision,
     URLExtractor, URLReputationChecker,
+    recipe_action_for_score,
 )
 
 
@@ -97,6 +98,16 @@ class SecurityPolicy:
                     verdict = self._decision(self.classifier.classify(text, previous))
                     if verdict.action == 'review' or verdict.risk_score > 99:
                         raise ValueError('Classifier must resolve review')
+                    if verdict.reason_code == 'security_check_unavailable':
+                        verdict = SecurityDecision('block', verdict.reason_code, verdict.risk_score, 'local_llm')
+                    else:
+                        # Enforce the same contract for injected classifiers as the real adapter.
+                        action = recipe_action_for_score(verdict.risk_score)
+                        if action != verdict.action:
+                            llm_failure.set('inconsistent_action_score')
+                        verdict = SecurityDecision(action,
+                            'recipe_context_detected' if action == 'block' else 'recipe_context_not_detected',
+                            verdict.risk_score, 'local_llm')
                 except Exception:
                     stage('llm', called=True, action='block', failure='adapter_error', duration_ms=round((time.monotonic()-started)*1000, 2))
                     stage('urls', detected='not_evaluated', count='not_evaluated', status='llm_failure')
